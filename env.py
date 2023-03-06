@@ -28,10 +28,11 @@ from pettingzoo.utils import agent_selector
 from pettingzoo import AECEnv
 
 class LEOSATEnv(AECEnv):
-    def __init__(self, render_mode=None) -> None:
-        self.area_max_x = 100    # km
-        self.area_max_y = 100    # km
-        self.area_max_z = 1_000  # km
+    def __init__(self, render_mode=None, debugging=False) -> None:        
+        # Agent area
+        self.GS_area_max_x = 100    # km
+        self.GS_area_max_y = 100    # km
+        self.GS_area_max_z = 1_000  # km
 
         self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
@@ -70,6 +71,8 @@ class LEOSATEnv(AECEnv):
         }
 
         self.render_mode = render_mode        
+
+        self.debugging = debugging
 
     
     def observation_space(self, agent):
@@ -118,9 +121,9 @@ class LEOSATEnv(AECEnv):
         for i in range(len(GS)):
             for j in range(len(SAT)):
                 dist[i][j] = np.linalg.norm(GS[i,0:2] - SAT[j,0:2]) # 2-dim 
-        #print(f"debuging dist: {dist}")
+        
         coverage_index = np.where(dist <= coverage_radius)
-        #print(f"debuging index: {coverage_index}")
+        
         coverage_indicator[coverage_index[:][0], coverage_index[:][1]] = 1
         return coverage_indicator        
 
@@ -138,7 +141,6 @@ class LEOSATEnv(AECEnv):
     def reset(self, seed=None, return_info=False, options=None):
         self.timestep = 0
 
-        self.agents = self.possible_agents[:]
         self._agent_selector = agent_selector(self.agents)
         self.agent_selection = self._agent_selector.next()
 
@@ -151,8 +153,8 @@ class LEOSATEnv(AECEnv):
 
         # set GS position
         for i in range(self.GS_size):
-            self.GS[i][0] = np.random.randint(0,100 + 1)
-            self.GS[i][1] = np.random.randint(0,100 + 1)
+            self.GS[i][0] = np.random.randint(0, self.GS_area_max_x + 1)
+            self.GS[i][1] = np.random.randint(0, self.GS_area_max_y + 1)
 
         # set SAT position
         self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
@@ -178,7 +180,6 @@ class LEOSATEnv(AECEnv):
     
     def observe(self, agent):
         # observation of one agent is the previous state of the other
-        # print({f"observe: {np.array(self.observations[agent]).shape}"})
         return np.array(self.observations[agent])
 
     def step(self, action):
@@ -191,9 +192,10 @@ class LEOSATEnv(AECEnv):
         # Execute actions and Get Rewards
         # Action must select a covering SAT
         agent = self.agent_selection
-        # print(f"agent: {agent}")
+        if self.debugging:  print(f"timestep:{self.timestep}, agent: {agent}")
         self.states[self.agent_selection] = action
-        # print(f"state : {self.states[agent]}")
+        if self.debugging: print(f"timestep:{self.timestep}, state : {self.states[agent]}")
+        
         if self._agent_selector.is_last():
             # rewards
             for i in range(self.GS_size):
@@ -276,10 +278,11 @@ class LEOSATEnv(AECEnv):
         # Plot ground stations
         axes.plot(self.GS[:,0], self.GS[:,1], '*')
         # Plot Selected line        
-        for i in range(self.GS_size):
+        for i in range(self.GS_size): # train 단에서 버그발견 수정 해야함
             axes.plot(
-                (self.GS[i,0], self.SAT_point[self.states[self.agents[i]],0]),(self.GS[i,1], self.SAT_point[self.states[self.agents[i]],1])
-                , "--k", linewidth=1
+                (self.GS[i,0], self.SAT_point[self.states[self.agents[i]],0]),
+                (self.GS[i,1], self.SAT_point[self.states[self.agents[i]],1]),
+                "--k", linewidth=1
                 )
         
         axes.set_aspect(1)
