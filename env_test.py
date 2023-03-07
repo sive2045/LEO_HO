@@ -2,9 +2,12 @@
 Enviornment Test
 
 """
+import torch
 from tianshou.data import Collector
 from tianshou.env import DummyVectorEnv, PettingZooEnv
-from tianshou.policy import MultiAgentPolicyManager, RandomPolicy
+from tianshou.policy import MultiAgentPolicyManager, RandomPolicy, DQNPolicy
+from tianshou.utils.net.common import Net
+import gymnasium as gym
 
 from env import LEOSATEnv
 
@@ -17,7 +20,33 @@ if __name__ == "__main__":
     env = PettingZooEnv(env)
 
     # Step 3: Define policies for each agent -> Random policies
-    agents = [RandomPolicy()] * 10
+    #agents = [RandomPolicy()] * 10
+    agents = []
+    observation_space = env.observation_space['observation'] if isinstance(
+        env.observation_space, gym.spaces.Dict
+    ) else env.observation_space
+    state_shape = observation_space.shape or observation_space.n
+    action_shape = env.action_space.shape or env.action_space.n
+    for _ in range(10): 
+        # model
+        net = Net(
+            state_shape,
+            action_shape,
+            hidden_sizes=[256, 256, 256],
+            device='cpu'
+        ).to('cpu')
+        optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+        agent = DQNPolicy(
+            net,
+            optim,
+            0.9,
+            10,
+            target_update_freq=320
+        )
+        agents.append(agent)
+
+    for i in range(10):
+        agents[i].load_state_dict(torch.load(f"./log/policy{i}.pth"))
     policies = MultiAgentPolicyManager(agents, env)
 
     # Step 4: Convert the env to vector format
