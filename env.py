@@ -208,7 +208,7 @@ class LEOSATEnv(AECEnv):
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -20
+                    reward = -30
                 # HO occur
                 elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -10
