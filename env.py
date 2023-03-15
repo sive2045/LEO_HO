@@ -17,6 +17,11 @@
 
 * v0: Initial versions release (1.0.0)
 
+
+TODO
+1. 클래스 파라메터 추가 (채널 개수, 로드 등등)
+2. 위성 위치 에러 추가 고려하기
+3. 구체적인 채널 파라미터도 고려해야 함
 """
 import matplotlib.pyplot as plt
 from copy import copy

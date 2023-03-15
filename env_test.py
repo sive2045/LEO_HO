@@ -1,6 +1,9 @@
 """
 Enviornment Test
 
+TODO
+1. 테스트 환경 정리하기 --> args 형태로
+2. history 및 결과 그래프 산출
 """
 import torch
 from tianshou.data import Collector
