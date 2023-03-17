@@ -1,3 +1,11 @@
+"""
+Train the agents.
+
+Use Algorithm: Asynchronous Methods for Deep Reinforcement Learning, arXiv:1602.01783.
+Type: Multi-Agent
+"""
+
+
 import argparse
 import os
 import warnings
@@ -11,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
 from tianshou.env.pettingzoo_env import PettingZooEnv
-from tianshou.policy import BasePolicy, DQNPolicy, MultiAgentPolicyManager
+from tianshou.policy import BasePolicy, DQNPolicy, MultiAgentPolicyManager, A2CPolicy
 from tianshou.trainer import offpolicy_trainer
 from tianshou.utils import TensorboardLogger
 from tianshou.utils.net.common import Net
