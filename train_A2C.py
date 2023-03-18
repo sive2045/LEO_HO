@@ -20,9 +20,10 @@ from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
 from tianshou.env.pettingzoo_env import PettingZooEnv
 from tianshou.policy import BasePolicy, DQNPolicy, MultiAgentPolicyManager, A2CPolicy
-from tianshou.trainer import offpolicy_trainer
+from tianshou.trainer import offpolicy_trainer, onpolicy_trainer
 from tianshou.utils import TensorboardLogger
-from tianshou.utils.net.common import Net
+from tianshou.utils.net.common import Net, ActorCritic
+from tianshou.utils.net.discrete import Actor, Critic
 
 from env import LEOSATEnv
 
@@ -46,13 +47,16 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--n-step', type=int, default=10)
     parser.add_argument('--target-update-freq', type=int, default=320)
     parser.add_argument('--epoch', type=int, default=1_000)
-    parser.add_argument('--step-per-epoch', type=int, default=1000)
-    parser.add_argument('--step-per-collect', type=int, default=10)
-    parser.add_argument('--update-per-step', type=float, default=0.1)
-    parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--step-per-epoch', type=int, default=50000)
+    parser.add_argument('--il-step-per-epoch', type=int, default=1000)
+    parser.add_argument('--episode-per-collect', type=int, default=16)
+    parser.add_argument('--step-per-collect', type=int, default=16)
+    parser.add_argument('--update-per-step', type=float, default=1 / 16)
+    parser.add_argument('--repeat-per-collect', type=int, default=1)
+    parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
     parser.add_argument('--training-num', type=int, default=10)
-    parser.add_argument('--test-num', type=int, default=10)
+    parser.add_argument('--test-num', type=int, default=100)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0.0)
     parser.add_argument('--max-reward', type=float, default=14.5)
@@ -66,6 +70,12 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu'
     )
+    # a2c special
+    parser.add_argument('--vf-coef', type=float, default=0.5)
+    parser.add_argument('--ent-coef', type=float, default=0.0)
+    parser.add_argument('--max-grad-norm', type=float, default=None)
+    parser.add_argument('--gae-lambda', type=float, default=1.)
+    parser.add_argument('--rew-norm', action="store_true", default=False)
     return parser
 
 
@@ -93,20 +103,24 @@ def get_agents(
         agents = []
         optims = []
         for _ in range(args.n_groudnstations): 
-            # model
-            net = Net(
-                args.state_shape,
-                args.action_shape,
-                hidden_sizes=args.hidden_sizes,
-                device=args.device
-            ).to(args.device)
-            optim = torch.optim.Adam(net.parameters(), lr=args.lr)
-            agent = DQNPolicy(
-                net,
-                optim,
-                args.gamma,
-                args.n_step,
-                target_update_freq=args.target_update_freq
+            # Model
+            net = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+            actor = Actor(net, args.action_shape, device=args.device).to(args.device)
+            critic = Critic(net, device=args.device).to(args.device)
+            optim = torch.optim.Adam(ActorCritic(actor, critic).parameters(), lr=args.lr)
+            dist = torch.distributions.Categorical            
+            agent = A2CPolicy(
+                actor=actor,
+                critic=critic,
+                optim=optim,
+                dist_fn=dist,
+                discount_factor=args.gamma,
+                gae_lambda=args.gae_lambda,
+                vf_coef=args.vf_coef,
+                ent_coef=args.ent_coef,
+                max_grad_norm=args.max_grad_norm,
+                reward_normalization=args.rew_norm,
+                action_space=env.action_space,
             )
             agents.append(agent)
             optims.append(optim)
@@ -140,7 +154,7 @@ def train_agent(
     test_collector = Collector(policy, test_envs, exploration_noise=True)
     train_collector.collect(n_step=args.batch_size * args.training_num)
     # log
-    log_path = os.path.join(args.logdir, 'LEO', 'dqn')
+    log_path = os.path.join(args.logdir, 'LEO', 'A2C')
     writer = SummaryWriter(log_path)
     writer.add_text("args", str(args))
     logger = TensorboardLogger(writer)
@@ -151,11 +165,11 @@ def train_agent(
             model_save_path = args.model_save_path
         else:
             model_save_path = os.path.join(
-                args.logdir, "LEO", "dqn", "policy.pth"
+                args.logdir, "LEO", "A2C", "policy.pth"
             )
         for i in range(args.n_groudnstations):
             model_save_path = os.path.join(
-                args.logdir, "LEO", "dqn", f"policy{i}.pth"
+                args.logdir, "LEO", "A2C", f"policy{i}.pth"
             )
             torch.save(
                 policy.policies[agents[i]].state_dict(), model_save_path # 인덱스 주의
@@ -174,23 +188,23 @@ def train_agent(
         return rews[:, 0]
 
     # trainer
-    result = offpolicy_trainer(
+    result = onpolicy_trainer(
         policy,
         train_collector,
         test_collector,
         args.epoch,
         args.step_per_epoch,
-        args.step_per_collect,
+        args.repeat_per_collect,
         args.test_num,
         args.batch_size,
+        episode_per_collect=args.episode_per_collect,
         train_fn=train_fn,
         test_fn=test_fn,
         stop_fn=stop_fn,
         save_best_fn=save_best_fn,
-        update_per_step=args.update_per_step,
+        reward_metric=reward_metric,
         logger=logger,
         test_in_train=False,
-        reward_metric=reward_metric
     )
 
     return result, policy
