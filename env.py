@@ -160,9 +160,9 @@ class LEOSATEnv(AECEnv):
                 for j in range(len(SAT)):
                     if service_indicator[i][j]:
                         dist = np.linalg.norm(GS[i,0:2] - SAT[j,0:2]) # 2-dim 
-                        delta_f = freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
+                        delta_f = 0 if (GS[i,0]-SAT[i,0]) == 0 else freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
                         f = freq + delta_f
-                        print(f"도플러 천이: {f}, {i}=th")
+                        #print(f"도플러 천이: {f}, {i}=th")
                         FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
                         GS_signal_power[i] = GS_Tx_power * (FSPL + anttena_gain)
 
