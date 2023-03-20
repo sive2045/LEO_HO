@@ -56,6 +56,9 @@ class LEOSATEnv(AECEnv):
         self.SAT_coverage[:,2,:] = 500 # km, SAT height
         self.SAT_Load = np.full(self.SAT_len*self.SAT_plane, 5) # the available channels of SAT
         self.SAT_W = 10 # MHz BW budget of SAT
+        self.freq = 14 # GHz
+        
+        self.weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
 
         self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # indicator: users are served by SAT (one-hot vector)
 
@@ -143,6 +146,46 @@ class LEOSATEnv(AECEnv):
         return visible_time        
 
 
+    def _cal_signal_power(self, SAT, GS, service_indicator, freq, speed):
+        """
+        return uplink signal power
+
+        shadow faiding loss -> avg 1
+        """
+        anttena_gain = 30 # [dBi]
+        GS_Tx_power = 23e-3 # 23 dBm
+
+        GS_signal_power = np.zeros(len(GS))
+        for i in range(len(GS)):
+                for j in range(len(SAT)):
+                    if service_indicator[i][j]:
+                        dist = np.linalg.norm(GS[i,0:2] - SAT[j,0:2]) # 2-dim 
+                        delta_f = freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
+                        f = freq + delta_f
+                        print(f"도플러 천이: {f}, {i}=th")
+                        FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+                        GS_signal_power[i] = GS_Tx_power * (FSPL + anttena_gain)
+
+        return GS_signal_power
+
+    def _cal_SINR(self, GS_index, SAT_serviced_indicator, signal_power, noise_temperature = 550):
+        """
+        Input parameter:
+            noise_temperature: 550 [K]
+        return uplink SINR
+        """
+        SINR = 0 # [dB]
+
+        noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
+        idx = np.where(SAT_serviced_indicator[GS_index] == SAT_serviced_indicator)
+        if len(idx) > 1:
+            interference = np.sum(signal_power[idx]) - signal_power[GS_index]
+            SINR = signal_power[GS_index] / (interference + noise_power)
+        else:
+            SINR = signal_power[GS_index] / noise_power
+
+        return SINR
+
     def reset(self, seed=None, return_info=False, options=None):
         self.timestep = 0
 
@@ -202,37 +245,11 @@ class LEOSATEnv(AECEnv):
         if self.debugging: print(f"timestep:{self.timestep}, state : {self.states[agent]}")
         
         if self._agent_selector.is_last():
-            # rewards
-            for i in range(self.GS_size):
-                reward = 0
-
-                # non-coverage area
-                if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -30
-                # HO occur
-                elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -10
-                else:
-                # Overload
-                    _actions = np.array(list(self.states.values()))
-                    if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
-                        reward = -5
-                    else:
-                        reward = self.visible_time[i][_actions[i]]
-                self.rewards[self.agents[i]] = reward
-        
             # Update service indicator
             self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
             for i in range(self.GS_size):
                 self.service_indicator[i][self.states[self.agents[i]]] = 1
     
-            # Check termination conditions
-            if self.timestep == self.terminal_time:
-                self.terminations = {agent: True for agent in self.agents}
-
-            # Get obersvations
-            self.timestep += 1
-
             # Get SAT position
             self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
             # Get coverage indicator
@@ -250,6 +267,37 @@ class LEOSATEnv(AECEnv):
                 )
                 self.observations[f"groud_station_{i}"] = observation
             
+            # rewards
+            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.service_indicator, self.freq, self.SAT_speed)
+            SINRs = np.zeros(self.GS_size)
+            for i in range(self.GS_size):
+                reward = 0
+
+                # non-coverage area
+                if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
+                    reward = -30
+                    signal_power[i] = 0 # non-service area
+                # HO occur
+                elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
+                    reward = -10
+                else:
+                # Overload
+                    _actions = np.array(list(self.states.values()))
+                    if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
+                        reward = -5
+                    else:
+                        SINRs[i] = self._cal_SINR(i, _actions, signal_power)
+                        reward = self.visible_time[i][_actions[i]] + self.weight * SINRs[i]
+                self.rewards[self.agents[i]] = reward
+            if self.debugging: print(f"rewards:{self.rewards}, visible_time: {self.visible_time}, SINR: {SINRs}")
+
+            # Check termination conditions
+            if self.timestep == self.terminal_time:
+                self.terminations = {agent: True for agent in self.agents}
+            
+            # Get obersvations
+            self.timestep += 1
+
             if self.render_mode == "human":
                 self.render()
         else:
