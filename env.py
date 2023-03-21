@@ -41,6 +41,8 @@ class LEOSATEnv(AECEnv):
 
         self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
+        self.anttena_gain = 30 # [dBi]
+        self.shadow_fading = 0.5 # [dB]
 
         self.timestep = None
         self.terminal_time = 155 # s
@@ -52,11 +54,14 @@ class LEOSATEnv(AECEnv):
         self.theta = np.linspace(0, 2 * np.pi, 150)
         self.SAT_point = np.zeros((self.SAT_len * self.SAT_plane, 3)) # coordinate (x, y, z) of SAT center point
         self.SAT_coverage = np.zeros((self.SAT_len * self.SAT_plane, 3, 150)) # coordinate (x, y, z) of SAT coverage
-        self.SAT_point[:,2] = 500 # km, SAT height 
-        self.SAT_coverage[:,2,:] = 500 # km, SAT height
+        self.SAT_height = 500 # km, SAT height
+        self.SAT_point[:,2] = self.SAT_height # km, SAT height 
+        self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
         self.SAT_Load = np.full(self.SAT_len*self.SAT_plane, 5) # the available channels of SAT
         self.SAT_W = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
+        self.GS_Tx_power = 23e-3 # 23 dBm
+        self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
         self.weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
 
@@ -96,25 +101,27 @@ class LEOSATEnv(AECEnv):
         """
         _SAT = np.copy(SAT)
         for i in range(SAT_len):
-            _SAT[i,0] = 65*i -speed * time
-            _SAT[i,1] = 10
+            _SAT[i,0] = 65*i -speed * time + np.random.normal(self.GNSS_noise)
+            _SAT[i,1] = 10 + np.random.normal(self.GNSS_noise)
+            _SAT[i,2] = self.SAT_height + np.random.normal(self.GNSS_noise)
 
-            _SAT[i + SAT_len,0] = -25 + 65*i -speed * time
-            _SAT[i+ SAT_len,1] =  10 + 65
-        
+            _SAT[i + SAT_len,0] = -25 + 65*i -speed * time + np.random.normal(self.GNSS_noise)
+            _SAT[i + SAT_len,1] =  10 + 65 + np.random.normal(self.GNSS_noise)
+            _SAT[i + SAT_len,2] = self.SAT_height + np.random.normal(self.GNSS_noise)
+        _SAT += np.random.normal(self.GNSS_noise)
         return _SAT
 
-    def _SAT_coverage_position(self, SAT_coverage, SAT_len, time, speed, radius, theta):
+    def _SAT_coverage_position(self, SAT_point, SAT_coverage, SAT_len, time, speed, radius, theta):
         """
         return real-time SAT coverage position
         for render
         """
         _SAT_coverage = np.copy(SAT_coverage)
         for i in range(SAT_len):
-            _SAT_coverage[i,0,:] = 65*i -speed * time + radius * np.cos(theta)
+            _SAT_coverage[i,0,:] = SAT_point[i,0] + radius * np.cos(theta)
             _SAT_coverage[i,1,:] =  10                + radius * np.sin(theta)
 
-            _SAT_coverage[i + SAT_len,0,:] = -25 + 65*i -speed * time + radius * np.cos(theta)
+            _SAT_coverage[i + SAT_len,0,:] = SAT_point[i + SAT_len, 0] + radius * np.cos(theta)
             _SAT_coverage[i + SAT_len,1,:] =  10 +   65               + radius * np.sin(theta)
 
         return _SAT_coverage
@@ -142,29 +149,28 @@ class LEOSATEnv(AECEnv):
         _num = np.max((coverage_radius ** 2 - (GS[1]-SAT_point[1]) ** 2, 0))
         visible_time = (np.sqrt(_num) - GS[0] + SAT_point[0]) / SAT_speed
         visible_time = np.max((visible_time, 0))
-        
+        visible_time = 0 if visible_time >= 14 else visible_time
         return visible_time        
 
 
     def _cal_signal_power(self, SAT, GS, service_indicator, freq, speed):
         """
+        기본적으로 거리가 길어서 path loss를 HO에서 SINR를 고려하기 좀 애매함.
+
         return uplink signal power
 
         shadow faiding loss -> avg 1
         """
-        anttena_gain = 30 # [dBi]
-        GS_Tx_power = 23e-3 # 23 dBm
-
         GS_signal_power = np.zeros(len(GS))
         for i in range(len(GS)):
                 for j in range(len(SAT)):
                     if service_indicator[i][j]:
-                        dist = np.linalg.norm(GS[i,0:2] - SAT[j,0:2]) # 2-dim 
+                        dist = np.linalg.norm(GS[i,:] - SAT[j,:])
                         delta_f = 0 if (GS[i,0]-SAT[i,0]) == 0 else freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
                         f = freq + delta_f
                         #print(f"도플러 천이: {f}, {i}=th")
                         FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
-                        GS_signal_power[i] = GS_Tx_power * (FSPL + anttena_gain)
+                        GS_signal_power[i] =  self.GS_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
 
         return GS_signal_power
 
@@ -268,15 +274,15 @@ class LEOSATEnv(AECEnv):
                 self.observations[f"groud_station_{i}"] = observation
             
             # rewards
-            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.service_indicator, self.freq, self.SAT_speed)
-            SINRs = np.zeros(self.GS_size)
+            #signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.service_indicator, self.freq, self.SAT_speed)
+            #SINRs = np.zeros(self.GS_size)
             for i in range(self.GS_size):
                 reward = 0
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -30
-                    signal_power[i] = 0 # non-service area
+                    #signal_power[i] = 0 # non-service area
                 # HO occur
                 elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -10
@@ -286,10 +292,11 @@ class LEOSATEnv(AECEnv):
                     if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
                         reward = -5
                     else:
-                        SINRs[i] = self._cal_SINR(i, _actions, signal_power)
-                        reward = self.visible_time[i][_actions[i]] + self.weight * SINRs[i]
+                        #SINRs[i] = self._cal_SINR(i, _actions, signal_power)
+                        #reward = self.visible_time[i][_actions[i]] + self.weight * SINRs[i]
+                        reward = self.visible_time[i][_actions[i]]
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards}, visible_time: {self.visible_time}, SINR: {SINRs}")
+            if self.debugging: print(f"rewards:{self.rewards}, visible_time: {self.visible_time}")
 
             # Check termination conditions
             if self.timestep == self.terminal_time:
@@ -318,7 +325,7 @@ class LEOSATEnv(AECEnv):
         """
         figure, axes = plt.subplots(1)
         
-        SAT_area = self._SAT_coverage_position(self.SAT_coverage, self.SAT_len, self.timestep, self.SAT_speed, self.SAT_coverage_radius, self.theta)        
+        SAT_area = self._SAT_coverage_position(self.SAT_point, self.SAT_coverage, self.SAT_len, self.timestep, self.SAT_speed, self.SAT_coverage_radius, self.theta)        
 
         # Plot SAT's coverage area
         for i in range(self.SAT_len * self.SAT_plane):
