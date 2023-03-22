@@ -35,5 +35,5 @@ Reward:
 	Case 0. -30, Non-service area
 	Case 1. -10, HO occur
 	Case 2. -5, Overload
-	Case 3. visible_time, ACK (MAX 14.10)
+	Case 3. visible_time + remaining_load, ACK
 ```

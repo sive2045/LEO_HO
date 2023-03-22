@@ -41,6 +41,7 @@ class LEOSATEnv(AECEnv):
 
         self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
+        self.GS_speed = 0.167 # km/s -> 60 km/h
         self.anttena_gain = 30 # [dBi]
         self.shadow_fading = 0.5 # [dB]
 
@@ -63,7 +64,8 @@ class LEOSATEnv(AECEnv):
         self.GS_Tx_power = 23e-3 # 23 dBm
         self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
-        self.weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
+        self.SINR_weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
+        self.load_weight = 1 # Remaining load reward weight
 
         self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # indicator: users are served by SAT (one-hot vector)
 
@@ -94,6 +96,27 @@ class LEOSATEnv(AECEnv):
     def action_space(self, agent):
         return self.action_spaces[agent]
 
+    def _GS_random_walk(self, GS, speed):
+        """
+        Update GS poistion by ramdom walk.
+            speed [km/s]
+            time [s]
+
+        return GS position
+        """
+        _GS = np.copy(GS)
+        for i in range(len(_GS)):
+            val = np.random.randint(1,4)
+            if val == 1:
+                _GS[i,0] += speed
+            elif val == 2:
+                _GS[i,0] -= speed
+            elif val == 3:
+                _GS[i,1] += speed
+            else:
+                _GS[i,1] -= speed
+        
+        return _GS
 
     def _SAT_coordinate(self, SAT, SAT_len, time, speed):
         """
@@ -246,7 +269,7 @@ class LEOSATEnv(AECEnv):
         # Execute actions and Get Rewards
         # Action must select a covering SAT
         agent = self.agent_selection
-        if self.debugging:  print(f"timestep:{self.timestep}, agent: {agent}")
+        if self.debugging:  print(f"timestep:{self.timestep}, agent: {agent}")        
         self.states[self.agent_selection] = action
         if self.debugging: print(f"timestep:{self.timestep}, state : {self.states[agent]}")
         
@@ -258,6 +281,9 @@ class LEOSATEnv(AECEnv):
     
             # Get SAT position
             self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
+            # Update GS position
+            self.GS = self._GS_random_walk(self.GS, self.GS_speed)
+            if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
             # Get coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
             # Get visible time        
@@ -281,22 +307,23 @@ class LEOSATEnv(AECEnv):
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -30
+                    reward = -50
                     #signal_power[i] = 0 # non-service area
                 # HO occur
                 elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -10
+                    reward = -30
                 else:
                 # Overload
                     _actions = np.array(list(self.states.values()))
                     if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
-                        reward = -5
+                        reward = -25
                     else:
                         #SINRs[i] = self._cal_SINR(i, _actions, signal_power)
                         #reward = self.visible_time[i][_actions[i]] + self.weight * SINRs[i]
-                        reward = self.visible_time[i][_actions[i]]
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards}, visible_time: {self.visible_time}")
+            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}")
 
             # Check termination conditions
             if self.timestep == self.terminal_time:
