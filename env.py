@@ -16,7 +16,8 @@
 ### Version History
 
 * v0: Initial versions release (1.0.0)
-
+* v1: Add interfence SAT, considering SINR (1.1.0)
+      -> Trajectory: y = x 
 
 TODO
 1. 클래스 파라메터 추가 (채널 개수, 로드 등등)
@@ -33,7 +34,7 @@ from pettingzoo.utils import agent_selector
 from pettingzoo import AECEnv
 
 class LEOSATEnv(AECEnv):
-    def __init__(self, render_mode=None, debugging=False) -> None:        
+    def __init__(self, render_mode=None, debugging=False, interference_mode=False) -> None:        
         #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.GS_area_max_x = 100    # km
         self.GS_area_max_y = 100    # km
@@ -44,6 +45,7 @@ class LEOSATEnv(AECEnv):
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.anttena_gain = 30 # [dBi]
         self.shadow_fading = 0.5 # [dB]
+        self.GS_Tx_power = 23e-3 # 23 dBm
 
         self.timestep = None
         self.terminal_time = 155 # s
@@ -51,7 +53,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_len = 22
         self.SAT_plane = 2 # of plane
         self.SAT_coverage_radius = 55 # km
-        self.SAT_speed = 7.9 # km/s, caution!! direction
+        self.SAT_speed = 6.87 # km/s, caution!! direction
         self.theta = np.linspace(0, 2 * np.pi, 150)
         self.SAT_point = np.zeros((self.SAT_len * self.SAT_plane, 3)) # coordinate (x, y, z) of SAT center point
         self.SAT_coverage = np.zeros((self.SAT_len * self.SAT_plane, 3, 150)) # coordinate (x, y, z) of SAT coverage
@@ -59,15 +61,28 @@ class LEOSATEnv(AECEnv):
         self.SAT_point[:,2] = self.SAT_height # km, SAT height 
         self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
         self.SAT_Load = np.full(self.SAT_len*self.SAT_plane, 5) # the available channels of SAT
-        self.SAT_W = 10 # MHz BW budget of SAT
+        self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
-        self.GS_Tx_power = 23e-3 # 23 dBm
+
+        self.SAT_Tx_power = 30 # dB ---> 수정 필요
         self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
         self.SINR_weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
         self.load_weight = 1 # Remaining load reward weight
 
         self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # indicator: users are served by SAT (one-hot vector)
+        #|------SAT(interference) args--------------------------------------------------------------------------------------------------------------|
+        self.interference_mode = interference_mode
+        self.ifc_SAT_len = 22
+        self.ifc_SAT_speed = 7.07 # km/s
+        self.ifc_SAT_point = np.zeros((self.ifc_SAT_len, 3)) # coordinate (x, y, z) of interference SAT center point
+        self.ifc_SAT_coverage = np.zeros((self.ifc_SAT_len, 3, 150)) # coordinate (x, y, z) of interference SAT coverage point
+        self.ifc_SAT_height = 700 # km
+        self.ifc_SAT_point[:,2] = self.ifc_SAT_height
+        self.ifc_SAT_coverage[:,2,:] = self.ifc_SAT_height
+        self.ifc_SAT_BW = 10 # MHz BW
+        self.ifc_Tx_power = 50 # dB ----> 수정 해야함
+        self.ifc_freq = 15 # GHz ---> 주파수 살짝만 다름 고려사항 생각
         #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.agents = [f"groud_station_{i}" for i in range(self.GS_size)]
         self.possible_agents = self.agents[:]
