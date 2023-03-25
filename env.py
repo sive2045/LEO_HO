@@ -34,7 +34,7 @@ from pettingzoo import AECEnv
 
 class LEOSATEnv(AECEnv):
     def __init__(self, render_mode=None, debugging=False) -> None:        
-        # Agent area
+        #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.GS_area_max_x = 100    # km
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
@@ -47,7 +47,7 @@ class LEOSATEnv(AECEnv):
 
         self.timestep = None
         self.terminal_time = 155 # s
-
+        #|------SAT(serviced) args------------------------------------------------------------------------------------------------------------------|
         self.SAT_len = 22
         self.SAT_plane = 2 # of plane
         self.SAT_coverage_radius = 55 # km
@@ -68,7 +68,7 @@ class LEOSATEnv(AECEnv):
         self.load_weight = 1 # Remaining load reward weight
 
         self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # indicator: users are served by SAT (one-hot vector)
-
+        #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.agents = [f"groud_station_{i}" for i in range(self.GS_size)]
         self.possible_agents = self.agents[:]
 
