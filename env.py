@@ -22,7 +22,7 @@
 TODO
 1. 클래스 파라메터 추가 (채널 개수, 로드 등등)
 2. 위성 위치 에러 추가 고려하기 -> 완료
-3. 구체적인 채널 파라미터도 고려해야 함 -> SINR 어떻게 고려할지 좀 더 고민 필요
+3. 구체적인 채널 파라미터도 고려해야 함 -> SINR 계산 추가해야함.
 """
 import matplotlib.pyplot as plt
 from copy import copy
@@ -77,6 +77,7 @@ class LEOSATEnv(AECEnv):
         self.ifc_SAT_speed = 7.07 # km/s
         self.ifc_SAT_point = np.zeros((self.ifc_SAT_len, 3)) # coordinate (x, y, z) of interference SAT center point
         self.ifc_SAT_coverage = np.zeros((self.ifc_SAT_len, 3, 150)) # coordinate (x, y, z) of interference SAT coverage point
+        self.ifc_SAT_coverage_radius = 70 # km
         self.ifc_SAT_height = 700 # km
         self.ifc_SAT_point[:,2] = self.ifc_SAT_height
         self.ifc_SAT_coverage[:,2,:] = self.ifc_SAT_height
@@ -146,7 +147,13 @@ class LEOSATEnv(AECEnv):
             _SAT[i + SAT_len,0] = -25 + 65*i -speed * time + np.random.normal(self.GNSS_noise)
             _SAT[i + SAT_len,1] =  10 + 65 + np.random.normal(self.GNSS_noise)
             _SAT[i + SAT_len,2] = self.SAT_height + np.random.normal(self.GNSS_noise)
-        _SAT += np.random.normal(self.GNSS_noise)
+        
+        if self.interference_mode:
+            for i in range(self.ifc_SAT_len):
+                self.ifc_SAT_point[i,0] = 80 - 100/np.sqrt(2) * i + self.ifc_SAT_speed/np.sqrt(2) * time + np.random.normal(self.GNSS_noise)
+                self.ifc_SAT_point[i,1] = 80 - 100/np.sqrt(2) * i + self.ifc_SAT_speed/np.sqrt(2) * time + np.random.normal(self.GNSS_noise)
+                self.ifc_SAT_point[i,2] = self.ifc_SAT_height + np.random.normal(self.GNSS_noise)
+
         return _SAT
 
     def _SAT_coverage_position(self, SAT_point, SAT_coverage, SAT_len, time, speed, radius, theta):
@@ -161,6 +168,11 @@ class LEOSATEnv(AECEnv):
 
             _SAT_coverage[i + SAT_len,0,:] = SAT_point[i + SAT_len, 0] + radius * np.cos(theta)
             _SAT_coverage[i + SAT_len,1,:] =  10 +   65               + radius * np.sin(theta)
+
+        if self.interference_mode:
+            for i in range(self.ifc_SAT_len):
+                self.ifc_SAT_coverage[i,0,:] = self.ifc_SAT_point[i,0] + self.ifc_SAT_coverage_radius * np.cos(theta)
+                self.ifc_SAT_coverage[i,1,:] = self.ifc_SAT_point[i,1] + self.ifc_SAT_coverage_radius * np.sin(theta)
 
         return _SAT_coverage
 
@@ -369,13 +381,13 @@ class LEOSATEnv(AECEnv):
         
         SAT_area = self._SAT_coverage_position(self.SAT_point, self.SAT_coverage, self.SAT_len, self.timestep, self.SAT_speed, self.SAT_coverage_radius, self.theta)        
 
-        # Plot SAT's coverage area
+        # Plot SATs' coverage area
         for i in range(self.SAT_len * self.SAT_plane):
-            axes.plot(SAT_area[i,0,:], SAT_area[i,1,:])
-        # Plot SAT's point
+            axes.plot(SAT_area[i,0,:], SAT_area[i,1,:], color='#2B3467')
+        # Plot SATs' point
         axes.plot(self.SAT_point[:,0], self.SAT_point[:,1], 'o')
         
-        # Plot ground station's area
+        # Plot ground stations' area
         axes.plot([0,100,100,0,0], [0,0,100,100,0])
         # Plot ground stations
         axes.plot(self.GS[:,0], self.GS[:,1], '*')
@@ -387,6 +399,13 @@ class LEOSATEnv(AECEnv):
                 "--k", linewidth=1
                 )
         
+        if self.interference_mode:
+            # Plot Interference SATs' point
+            axes.plot(self.ifc_SAT_point[:,0], self.ifc_SAT_point[:,1], 's')
+            # Plot Interference SAT's coverage
+            for i in range(self.ifc_SAT_len):
+                axes.plot(self.ifc_SAT_coverage[i,0,:], self.ifc_SAT_coverage[i,1,:], color='#EB455F', linestyle=':')
+
         axes.set_aspect(1)
         axes.axis([-50, 200, -50, 150])
 
