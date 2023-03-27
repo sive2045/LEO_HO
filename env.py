@@ -64,7 +64,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
 
-        self.SAT_Tx_power = 30 # dB ---> 수정 필요
+        self.SAT_Tx_power = 3 # dBw ---> 수정 필요
         self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
         self.SINR_weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
@@ -82,8 +82,9 @@ class LEOSATEnv(AECEnv):
         self.ifc_SAT_point[:,2] = self.ifc_SAT_height
         self.ifc_SAT_coverage[:,2,:] = self.ifc_SAT_height
         self.ifc_SAT_BW = 10 # MHz BW
-        self.ifc_Tx_power = 50 # dB ----> 수정 해야함
+        self.ifc_Tx_power = 6 # dBw ----> 수정 해야함
         self.ifc_freq = 15 # GHz ---> 주파수 살짝만 다름 고려사항 생각
+        self.ifc_service_indicator = np.zeros((self.GS_size, self.ifc_SAT_len)) # indicator: users are in interference SAT
         #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.agents = [f"groud_station_{i}" for i in range(self.GS_size)]
         self.possible_agents = self.agents[:]
@@ -190,6 +191,16 @@ class LEOSATEnv(AECEnv):
         coverage_index = np.where(dist <= coverage_radius)
         
         coverage_indicator[coverage_index[:][0], coverage_index[:][1]] = 1
+
+        if self.interference_mode:
+            _dist = np.zeros((self.GS_size, self.ifc_SAT_len))
+            for i in range(self.GS_size):
+                for j in range(self.ifc_SAT_len):
+                    _dist[i][j] = np.linalg.norm(GS[i,0:2] - self.ifc_SAT_point[j,0:2]) # 2-dim
+            
+            _ifc_coverage_idx = np.where(_dist <= self.ifc_SAT_coverage_radius)
+            self.ifc_service_indicator[_ifc_coverage_idx[:][0], _ifc_coverage_idx[:][1]] = 1
+
         return coverage_indicator        
 
     def _get_visible_time(self, SAT_point, SAT_speed, coverage_radius, GS):
@@ -213,18 +224,18 @@ class LEOSATEnv(AECEnv):
         """
         GS_signal_power = np.zeros(len(GS))
         for i in range(len(GS)):
-                for j in range(len(SAT)):
-                    if service_indicator[i][j]:
-                        dist = np.linalg.norm(GS[i,:] - SAT[j,:])
-                        delta_f = 0 if (GS[i,0]-SAT[i,0]) == 0 else freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
-                        f = freq + delta_f
-                        #print(f"도플러 천이: {f}, {i}=th")
-                        FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
-                        GS_signal_power[i] =  self.GS_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
+            for j in range(len(SAT)):
+                if service_indicator[i][j]:
+                    dist = np.linalg.norm(GS[i,:] - SAT[j,:])
+                    delta_f = 0 if (GS[i,0]-SAT[i,0]) == 0 else freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
+                    f = freq + delta_f
+                    #print(f"도플러 천이: {f}, {i}=th")
+                    FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+                    GS_signal_power[i] =  self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
 
         return GS_signal_power
 
-    def _cal_SINR(self, GS_index, SAT_serviced_indicator, signal_power, noise_temperature = 550):
+    def _cal_SINR(self, GS_index, signal_power, noise_temperature = 550):
         """
         Input parameter:
             noise_temperature: 550 [K]
@@ -232,14 +243,32 @@ class LEOSATEnv(AECEnv):
         """
         SINR = 0 # [dB]
 
+        # noise
         noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
-        idx = np.where(SAT_serviced_indicator[GS_index] == SAT_serviced_indicator)
-        if len(idx) > 1:
-            interference = np.sum(signal_power[idx]) - signal_power[GS_index]
-            SINR = signal_power[GS_index] / (interference + noise_power)
-        else:
-            SINR = signal_power[GS_index] / noise_power
 
+        ifc = 0 # dB
+        # communication constellation interfernce
+        comm_ifc = 0 # dB
+        for i in range(self.SAT_len * self.SAT_plane):
+            if self.service_indicator[GS_index,i]:
+                dist = np.linalg.norm(self.GS[GS_index,:] - self.SAT_point[i,:])
+                delta_f = 0 if (self.GS[GS_index,0]-self.SAT_point[i,0]) == 0 else self.freq * np.abs(self.SAT_speed) * (dist / (self.GS[GS_index,0]-self.SAT_point[i,0])) / (3e5) # Doppler shift !단위 주의!
+                f = self.freq + delta_f
+                FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+                comm_ifc += self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
+        comm_ifc -= signal_power
+        # interference constellation
+        SAT_ifc = 0 # dB
+        for i in range(self.ifc_SAT_len):
+            if self.ifc_service_indicator[GS_index, i]:
+                dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
+                delta_f = 0 if (self.GS[GS_index,0]-self.ifc_SAT_point[i,0]) == 0 else self.ifc_freq * np.abs(self.ifc_SAT_speed) * (dist / (self.GS[GS_index,0]-self.ifc_SAT_point[i,0])) / (3e5) # Doppler shift !단위 주의!
+                f = self.ifc_freq + delta_f
+                FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+                SAT_ifc += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
+
+        # SINR calculate
+        SINR = signal_power / (comm_ifc + SAT_ifc + noise_power) # dB
         return SINR
 
     def reset(self, seed=None, return_info=False, options=None):
