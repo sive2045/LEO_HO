@@ -23,6 +23,7 @@ TODO
 1. 클래스 파라메터 추가 (채널 개수, 로드 등등)
 2. 위성 위치 에러 추가 고려하기 -> 완료
 3. 구체적인 채널 파라미터도 고려해야 함 -> SINR 계산 추가해야함.
+--> SINR, 선택에 따라 값이 바뀌는지 확인이 필요함. ***************************
 """
 import matplotlib.pyplot as plt
 from copy import copy
@@ -239,14 +240,13 @@ class LEOSATEnv(AECEnv):
         """
         Input parameter:
             noise_temperature: 550 [K]
-        return uplink SINR
+        return downlink SINR
         """
         SINR = 0 # [dB]
 
         # noise
         noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
 
-        ifc = 0 # dB
         # communication constellation interfernce
         comm_ifc = 0 # dB
         for i in range(self.SAT_len * self.SAT_plane):
@@ -331,16 +331,17 @@ class LEOSATEnv(AECEnv):
         
         if self._agent_selector.is_last():
             # Update service indicator
+            _service_indicator = np.copy(self.service_indicator)
             self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
             for i in range(self.GS_size):
                 self.service_indicator[i][self.states[self.agents[i]]] = 1
     
-            # Get SAT position
+            # Update SAT position
             self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
             # Update GS position
             self.GS = self._GS_random_walk(self.GS, self.GS_speed)
             if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
-            # Get coverage indicator
+            # Update coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
             # Get visible time        
             for i in range(self.GS_size):
@@ -356,17 +357,17 @@ class LEOSATEnv(AECEnv):
                 self.observations[f"groud_station_{i}"] = observation
             
             # rewards
-            #signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.service_indicator, self.freq, self.SAT_speed)
-            #SINRs = np.zeros(self.GS_size)
+            if self.interference_mode:
+                signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.service_indicator, self.freq, self.SAT_speed)
+                SINRs = np.zeros(self.GS_size)
             for i in range(self.GS_size):
                 reward = 0
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -50
-                    #signal_power[i] = 0 # non-service area
                 # HO occur
-                elif self.service_indicator[i][self.states[self.agents[i]]] == 0:
+                elif _service_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -30
                 else:
                 # Overload
@@ -374,12 +375,18 @@ class LEOSATEnv(AECEnv):
                     if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
                         reward = -25
                     else:
-                        #SINRs[i] = self._cal_SINR(i, _actions, signal_power)
-                        #reward = self.visible_time[i][_actions[i]] + self.weight * SINRs[i]
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
-                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
+                        if self.interference_mode:                            
+                            SINRs[i] = self._cal_SINR(i, signal_power[i])
+                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * SINRs[i]
+                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR: {SINRs[i]}")
+                        else:
+                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                            if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
             if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}")
+
+            if self.render_mode == "human":
+                self.render()
 
             # Check termination conditions
             if self.timestep == self.terminal_time:
@@ -387,17 +394,12 @@ class LEOSATEnv(AECEnv):
             
             # Get obersvations
             self.timestep += 1
-
-            if self.render_mode == "human":
-                self.render()
         else:
             self._clear_rewards()
         
         self._cumulative_rewards[self.agent_selection] = 0
         self.agent_selection = self._agent_selector.next()
         self._accumulate_rewards()
-
-        
 
         #return self.observations, self.rewards, self.terminations, self.truncations, self.infos
         
