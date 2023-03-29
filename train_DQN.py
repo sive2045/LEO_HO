@@ -31,7 +31,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--eps-test', type=float, default=0.05)
     parser.add_argument('--eps-train', type=float, default=0.1)
     parser.add_argument('--buffer-size', type=int, default=15600)
-    parser.add_argument('--lr', type=float, default=1e-5)
+    parser.add_argument('--lr', type=float, default=1e-6)
     parser.add_argument(
         '--gamma', type=float, default=0.9, help='a smaller gamma favors earlier win'
     )
@@ -43,12 +43,12 @@ def get_parser() -> argparse.ArgumentParser:
         help='Number of groudnstations(agents) in the env'
     )
     parser.add_argument('--n-step', type=int, default=10)
-    parser.add_argument('--target-update-freq', type=int, default=320)
+    parser.add_argument('--target-update-freq', type=int, default=100)
     parser.add_argument('--epoch', type=int, default=1_000)
-    parser.add_argument('--step-per-epoch', type=int, default=1000)
+    parser.add_argument('--step-per-epoch', type=int, default=500)
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
-    parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
     parser.add_argument('--training-num', type=int, default=10)
     parser.add_argument('--test-num', type=int, default=10)

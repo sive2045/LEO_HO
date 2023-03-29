@@ -227,10 +227,11 @@ class LEOSATEnv(AECEnv):
         for i in range(len(GS)):
             for j in range(len(SAT)):
                 dist = np.linalg.norm(GS[i,:] - SAT[j,:])
-                delta_f = 0 if (GS[i,0]-SAT[i,0]) == 0 else freq * np.abs(speed) * (dist / (GS[i,0]-SAT[i,0])) / (3e5) # Doppler shift !단위 주의!
-                f = freq + delta_f
-                #print(f"도플러 천이: {f}, {i}=th")
-                FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+                if GS[i,0] > SAT[j,0]:
+                    delta_f = (1 + self.SAT_speed / 3e6) * freq
+                else:
+                    delta_f = (1 - self.SAT_speed / 3e6) * freq
+                FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
                 GS_signal_power[i, j] =  self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
@@ -250,18 +251,22 @@ class LEOSATEnv(AECEnv):
         comm_ifc = np.zeros(self.SAT_len * self.SAT_plane) # dB
         for i in range(self.SAT_len * self.SAT_plane):
             dist = np.linalg.norm(self.GS[GS_index,:] - self.SAT_point[i,:])
-            delta_f = 0 if (self.GS[GS_index,0]-self.SAT_point[i,0]) == 0 else self.freq * np.abs(self.SAT_speed) * (dist / (self.GS[GS_index,0]-self.SAT_point[i,0])) / (3e5) # Doppler shift !단위 주의!
-            f = self.freq + delta_f
-            FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+            if self.GS[GS_index,0] > self.SAT_point[i,0]:
+                delta_f = (1 + self.SAT_speed / 3e6) * self.freq
+            else:
+                delta_f = (1 - self.SAT_speed / 3e6) * self.freq
+            FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
             comm_ifc[i] += self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
         comm_ifc -= signal_power
         # interference constellation
         SAT_ifc = np.zeros(self.ifc_SAT_len) # dB
         for i in range(self.ifc_SAT_len):
             dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
-            delta_f = 0 if (self.GS[GS_index,0]-self.ifc_SAT_point[i,0]) == 0 else self.ifc_freq * np.abs(self.ifc_SAT_speed) * (dist / (self.GS[GS_index,0]-self.ifc_SAT_point[i,0])) / (3e5) # Doppler shift !단위 주의!
-            f = self.ifc_freq + delta_f
-            FSPL = 20 * np.log10(dist) + 20 * np.log10(f) + 92.45 # [dB], free space path loss
+            if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
+                delta_f = (1 + self.ifc_SAT_speed / 3e6) * self.ifc_freq
+            else:
+                delta_f = (1 - self.ifc_SAT_speed / 3e6) * self.ifc_freq
+            FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
             SAT_ifc[i] += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
 
         # SINR calculate
@@ -297,12 +302,12 @@ class LEOSATEnv(AECEnv):
             for j in range(self.SAT_len*2):
                 self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
         # Update SINR info, 모든 정보?? 확인 필요! 
-            if self.interference_mode:
-                SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-                signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq, self.SAT_speed)
-                for i in range(self.GS_size):
-                    for j in range(self.SAT_len * self.SAT_plane):
-                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,j])
+        if self.interference_mode:
+            SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
+            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq, self.SAT_speed)
+            for i in range(self.GS_size):
+                for j in range(self.SAT_len * self.SAT_plane):
+                    SINRs[i][j] = self._cal_SINR(i, signal_power[i,j])
         # observations
         self.observations = {}
         for i in range(self.GS_size):
