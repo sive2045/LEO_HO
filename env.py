@@ -215,7 +215,7 @@ class LEOSATEnv(AECEnv):
         return visible_time        
 
 
-    def _cal_signal_power(self, SAT, GS, freq, speed):
+    def _cal_signal_power(self, SAT, GS, freq):
         """
         기본적으로 거리가 길어서 path loss를 HO에서 SINR를 고려하기 좀 애매함.
 
@@ -236,7 +236,7 @@ class LEOSATEnv(AECEnv):
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
 
-    def _cal_SINR(self, GS_index, signal_power, noise_temperature = 550):
+    def _cal_SINR(self, GS_index, signal_power, SAT_service_idx, noise_temperature = 550):
         """
         Input parameter:
             noise_temperature: 550 [K]
@@ -248,16 +248,7 @@ class LEOSATEnv(AECEnv):
         noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
 
         # communication constellation interfernce
-        comm_ifc = np.zeros(self.SAT_len * self.SAT_plane) # dB
-        for i in range(self.SAT_len * self.SAT_plane):
-            dist = np.linalg.norm(self.GS[GS_index,:] - self.SAT_point[i,:])
-            if self.GS[GS_index,0] > self.SAT_point[i,0]:
-                delta_f = (1 + self.SAT_speed / 3e6) * self.freq
-            else:
-                delta_f = (1 - self.SAT_speed / 3e6) * self.freq
-            FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-            comm_ifc[i] += self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
-        comm_ifc -= signal_power
+        comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] # dB
         # interference constellation
         SAT_ifc = np.zeros(self.ifc_SAT_len) # dB
         for i in range(self.ifc_SAT_len):
@@ -270,7 +261,7 @@ class LEOSATEnv(AECEnv):
             SAT_ifc[i] += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
 
         # SINR calculate
-        SINR = signal_power / (np.sum(comm_ifc) + np.sum(SAT_ifc) + noise_power) # dB
+        SINR = signal_power[SAT_service_idx] / ((comm_ifc) + np.sum(SAT_ifc) + noise_power) # dB
         if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
@@ -304,10 +295,10 @@ class LEOSATEnv(AECEnv):
         # Update SINR info, 모든 정보?? 확인 필요! 
         if self.interference_mode:
             SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq, self.SAT_speed)
+            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
             for i in range(self.GS_size):
                 for j in range(self.SAT_len * self.SAT_plane):
-                    SINRs[i][j] = self._cal_SINR(i, signal_power[i,j])
+                    SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
         # observations
         self.observations = {}
         for i in range(self.GS_size):
@@ -360,10 +351,10 @@ class LEOSATEnv(AECEnv):
             # Update SINR info
             if self.interference_mode:
                 SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-                signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq, self.SAT_speed)
+                signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
                 for i in range(self.GS_size):
                     for j in range(self.SAT_len * self.SAT_plane):
-                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,j])
+                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
 
             for i in range(self.GS_size):
                 observation = (

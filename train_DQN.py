@@ -44,17 +44,17 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument('--n-step', type=int, default=10)
     parser.add_argument('--target-update-freq', type=int, default=100)
-    parser.add_argument('--epoch', type=int, default=1_000)
-    parser.add_argument('--step-per-epoch', type=int, default=500)
+    parser.add_argument('--epoch', type=int, default=1_000_000)
+    parser.add_argument('--step-per-epoch', type=int, default=1000)
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
     parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
-    parser.add_argument('--training-num', type=int, default=10)
-    parser.add_argument('--test-num', type=int, default=10)
+    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128, 128, 128])
+    parser.add_argument('--training-num', type=int, default=5)
+    parser.add_argument('--test-num', type=int, default=5)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0.0)
-    parser.add_argument('--max-reward', type=float, default=14.5)
+    parser.add_argument('--max-reward', type=float, default=20*155)
     parser.add_argument(
         '--watch',
         default=False,
