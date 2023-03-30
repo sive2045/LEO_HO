@@ -250,7 +250,8 @@ class LEOSATEnv(AECEnv):
         # communication constellation interfernce
         comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] # dB
         # interference constellation
-        SAT_ifc = np.zeros(self.ifc_SAT_len) # dB
+        # SAT_ifc = np.zeros(self.ifc_SAT_len) # dB 디버깅용, 연산 소모때문에 학습땐 지양.
+        SAT_ifc = 0
         for i in range(self.ifc_SAT_len):
             dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
             if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
@@ -258,10 +259,10 @@ class LEOSATEnv(AECEnv):
             else:
                 delta_f = (1 - self.ifc_SAT_speed / 3e6) * self.ifc_freq
             FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-            SAT_ifc[i] += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
+            SAT_ifc += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading) # 디버깅 시 SAT_ifc[i]로 변환!
 
         # SINR calculate
-        SINR = signal_power[SAT_service_idx] / ((comm_ifc) + np.sum(SAT_ifc) + noise_power) # dB
+        SINR = signal_power[SAT_service_idx] / ((comm_ifc) + (SAT_ifc) + noise_power) # dB
         if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
@@ -389,7 +390,7 @@ class LEOSATEnv(AECEnv):
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}")
+            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
                 self.render()
