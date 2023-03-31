@@ -65,10 +65,10 @@ class LEOSATEnv(AECEnv):
         self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
 
-        self.SAT_Tx_power = 3 # dBw ---> 수정 필요
+        self.SAT_Tx_power = 11 # dBw ---> 수정 필요
         self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
-        self.SINR_weight = 10 # SINR reward weight: in this senario avg SINR is 0.85
+        self.SINR_weight = 2 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
 
         self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # indicator: users are served by SAT (one-hot vector)
@@ -83,7 +83,7 @@ class LEOSATEnv(AECEnv):
         self.ifc_SAT_point[:,2] = self.ifc_SAT_height
         self.ifc_SAT_coverage[:,2,:] = self.ifc_SAT_height
         self.ifc_SAT_BW = 10 # MHz BW
-        self.ifc_Tx_power = 6 # dBw ----> 수정 해야함
+        self.ifc_Tx_power = 8 # dBw ----> 수정 해야함
         self.ifc_freq = 15 # GHz ---> 주파수 살짝만 다름 고려사항 생각
         self.ifc_service_indicator = np.zeros((self.GS_size, self.ifc_SAT_len)) # indicator: users are in interference SAT
         #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
@@ -227,12 +227,15 @@ class LEOSATEnv(AECEnv):
         for i in range(len(GS)):
             for j in range(len(SAT)):
                 dist = np.linalg.norm(GS[i,:] - SAT[j,:])
+                #print(f"{self.timestep}시간, {i}유저와 {j}위성 간 거리 : {dist}") 
                 if GS[i,0] > SAT[j,0]:
-                    delta_f = (1 + self.SAT_speed / 3e6) * freq
+                    delta_f = (1 + self.SAT_speed / 3e5) * freq
                 else:
-                    delta_f = (1 - self.SAT_speed / 3e6) * freq
+                    delta_f = (1 - self.SAT_speed / 3e5) * freq
+                #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
                 FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                GS_signal_power[i, j] =  self.SAT_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading)
+                GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
+                #GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 30
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
 
@@ -246,6 +249,7 @@ class LEOSATEnv(AECEnv):
 
         # noise
         noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
+        #noise = 10 **(0.1*noise_power)
 
         # communication constellation interfernce
         comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] # dB
@@ -254,15 +258,19 @@ class LEOSATEnv(AECEnv):
         SAT_ifc = 0
         for i in range(self.ifc_SAT_len):
             dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
+            #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
             if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
-                delta_f = (1 + self.ifc_SAT_speed / 3e6) * self.ifc_freq
+                delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
             else:
-                delta_f = (1 - self.ifc_SAT_speed / 3e6) * self.ifc_freq
+                delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
+            #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
             FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-            SAT_ifc += self.ifc_Tx_power * (-FSPL + self.anttena_gain + self.shadow_fading) # 디버깅 시 SAT_ifc[i]로 변환!
+            SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
+            #SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
 
         # SINR calculate
-        SINR = signal_power[SAT_service_idx] / ((comm_ifc) + (SAT_ifc) + noise_power) # dB
+        SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
+        #SINR = 10*np.log(signal_power[SAT_service_idx] / (comm_ifc + SAT_ifc + noise))
         if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
@@ -384,8 +392,9 @@ class LEOSATEnv(AECEnv):
                     else:
                         if self.interference_mode:                         
                             SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
-                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * SINR
-                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR: {SINR}")
+                            SINR_average = np.average(SINRs[i])
+                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR - SINR_average))
+                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight * 10 ** (0.1*(SINR - SINR_average))}")
                         else:
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
