@@ -304,10 +304,12 @@ class LEOSATEnv(AECEnv):
         # Update SINR info, 모든 정보?? 확인 필요! 
         if self.interference_mode:
             SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
+            SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
             signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
             for i in range(self.GS_size):
                 for j in range(self.SAT_len * self.SAT_plane):
                     SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
+                SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
         # observations
         self.observations = {}
         for i in range(self.GS_size):
@@ -315,7 +317,7 @@ class LEOSATEnv(AECEnv):
                 self.coverage_indicator[i],
                 self.SAT_Load,
                 self.visible_time[i],
-                SINRs[i]
+                SINRs_avg[i]
             )
             self.observations[self.agents[i]] = observation
 
@@ -360,17 +362,19 @@ class LEOSATEnv(AECEnv):
             # Update SINR info
             if self.interference_mode:
                 SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
+                SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
                 signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
                 for i in range(self.GS_size):
                     for j in range(self.SAT_len * self.SAT_plane):
                         SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
+                    SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
 
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
                     self.SAT_Load,
                     self.visible_time[i],
-                    SINRs[i]
+                    SINRs_avg[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
             
@@ -391,15 +395,14 @@ class LEOSATEnv(AECEnv):
                         reward = -25
                     else:
                         if self.interference_mode:                         
-                            SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
-                            SINR_average = np.average(SINRs[i])
-                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR - SINR_average))
-                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight * 10 ** (0.1*(SINR - SINR_average))}")
+                            SINR = float(SINRs_avg[i, np.where(self.service_indicator[i] == 1)])
+                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR))
+                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight * 10 ** (0.1*(SINR))}")
                         else:
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}") # 디버깅시 SINR도 보이게 설정.
+            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
                 self.render()
