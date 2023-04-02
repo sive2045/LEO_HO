@@ -27,6 +27,7 @@ from env import LEOSATEnv
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument('--load-agent', type=bool, default=False)
     parser.add_argument('--seed', type=int, default=1626)
     parser.add_argument('--eps-test', type=float, default=0.05)
     parser.add_argument('--eps-train', type=float, default=0.1)
@@ -37,10 +38,10 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument('--debugging', type=bool, default=False)
     parser.add_argument(
-        '--n-groudnstations',
+        '--n-groundstations',
         type=int,
         default=10,
-        help='Number of groudnstations(agents) in the env'
+        help='Number of groundstations(agents) in the env'
     )
     parser.add_argument('--n-step', type=int, default=10)
     parser.add_argument('--target-update-freq', type=int, default=100)
@@ -91,7 +92,7 @@ def get_agents(
     if agents is None:
         agents = []
         optims = []
-        for _ in range(args.n_groudnstations): 
+        for _ in range(args.n_groundstations): 
             # model
             net = Net(
                 args.state_shape,
@@ -109,7 +110,10 @@ def get_agents(
             )
             agents.append(agent)
             optims.append(optim)
-
+    
+    if args.load_agent:
+        for i in range(args.n_groundstations):
+            agents[i].load_state_dict(torch.load(f"./log/policy{i}.pth"))
     policy = MultiAgentPolicyManager(agents, env)
     return policy, optims, env.agents
 
@@ -152,7 +156,7 @@ def train_agent(
             model_save_path = os.path.join(
                 args.logdir, "LEO", "dqn", "policy.pth"
             )
-        for i in range(args.n_groudnstations):
+        for i in range(args.n_groundstations):
             model_save_path = os.path.join(
                 args.logdir, "LEO", "dqn", f"policy{i}.pth"
             )
