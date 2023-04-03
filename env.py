@@ -102,10 +102,14 @@ class LEOSATEnv(AECEnv):
             )
             for i in self.agents
         }
-
+        #|------Debugging args-----------------------------------------------------------------------------------------------------------------------|
         self.render_mode = render_mode        
-
         self.debugging = debugging
+        
+        # Result vars
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: handover, 3: overload, 4: ACK 
+        self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
     
     def observation_space(self, agent):
@@ -271,7 +275,7 @@ class LEOSATEnv(AECEnv):
         # SINR calculate
         SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
         #SINR = 10*np.log(signal_power[SAT_service_idx] / (comm_ifc + SAT_ifc + noise))
-        if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
+        #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
     def reset(self, seed=None, return_info=False, options=None):
@@ -320,6 +324,11 @@ class LEOSATEnv(AECEnv):
                 SINRs_avg[i]
             )
             self.observations[self.agents[i]] = observation
+        
+        # logs
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: handover, 3: overload, 4: ACK 
+        self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         #return self.observations
     
@@ -385,24 +394,34 @@ class LEOSATEnv(AECEnv):
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -50
+                    self.agent_status_log[i][self.timestep] = 1
                 # HO occur
                 elif _service_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -30
+                    self.agent_status_log[i][self.timestep] = 2
+                    _actions = np.array(list(self.states.values()))
+                    self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
                 else:
                 # Overload
                     _actions = np.array(list(self.states.values()))
+                    self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
                     if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
                         reward = -25
+                        self.agent_status_log[i][self.timestep] = 3
                     else:
                         if self.interference_mode:                         
                             SINR = float(SINRs_avg[i, np.where(self.service_indicator[i] == 1)])
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR))
+                            self.agent_status_log[i][self.timestep] = 4
+                            self.SINR_log[i][self.timestep] = SINR
                             if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight * 10 ** (0.1*(SINR))}")
                         else:
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                            self.agent_status_log[i][self.timestep] = 4
+                            self.SINR_log[i][self.timestep] = SINR
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
+            #if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
                 self.render()
@@ -410,9 +429,10 @@ class LEOSATEnv(AECEnv):
             # Check termination conditions
             if self.timestep == self.terminal_time:
                 self.terminations = {agent: True for agent in self.agents}
-            
-            # Get obersvations
-            self.timestep += 1
+                if self.debugging:
+                    self.render_result()
+            else:
+                self.timestep += 1
         else:
             self._clear_rewards()
         
@@ -424,6 +444,8 @@ class LEOSATEnv(AECEnv):
         
     def render(self):
         """
+        Rendering scenario step
+
         Caution time step !!
         -> execute this func before step func
         """
@@ -460,3 +482,31 @@ class LEOSATEnv(AECEnv):
         axes.axis([-50, 200, -50, 150])
 
         plt.show()
+    
+    def render_result(self):
+        """
+        Plot result graphs
+
+        0. Agents' Handover Average
+        1. Agents' SINR Average
+        2. Load Balancing
+        """
+        # Plot Agents' Status
+        agents = np.arange(0,10)
+        _status = np.zeros((self.GS_size, 4))
+        for i in range(self.GS_size):
+            _status[i][0] = np.count_nonzero(self.agent_status_log[i] == 1)
+            _status[i][1] = np.count_nonzero(self.agent_status_log[i] == 2)
+            _status[i][2] = np.count_nonzero(self.agent_status_log[i] == 3)
+            _status[i][3] = np.count_nonzero(self.agent_status_log[i] == 4)
+
+        bar_width = 0.1
+        status_1 = plt.bar(agents, _status[:,0], bar_width, label='non-service')
+        status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='handover')
+        status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='overload')
+        status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='ACK')
+        plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
+        plt.xlabel('# of Agent'); plt.legend()
+
+        plt.show()
+
