@@ -421,7 +421,7 @@ class LEOSATEnv(AECEnv):
                             self.SINR_log[i][self.timestep] = SINR
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            #if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
+            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
                 self.render()
@@ -491,6 +491,9 @@ class LEOSATEnv(AECEnv):
         1. Agents' SINR Average
         2. Load Balancing
         """
+        for i in range(self.GS_size):
+            print(f"{i}-th Agent's episode average SINR: {np.average(self.SINR_log[i,:])}")
+
         # Plot Agents' Status
         agents = np.arange(0,10)
         _status = np.zeros((self.GS_size, 4))
@@ -501,7 +504,7 @@ class LEOSATEnv(AECEnv):
             _status[i][3] = np.count_nonzero(self.agent_status_log[i] == 4)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, _status[:,0], bar_width, label='non-service')
+        status_1 = plt.bar(agents, _status[:,0], bar_width, label='blocked-reate')
         status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='handover')
         status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='overload')
         status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='ACK')
@@ -509,4 +512,5 @@ class LEOSATEnv(AECEnv):
         plt.xlabel('# of Agent'); plt.legend()
 
         plt.show()
+
 
