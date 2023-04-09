@@ -221,7 +221,7 @@ class LEOSATEnv(AECEnv):
 
     def _cal_signal_power(self, SAT, GS, freq):
         """
-        기본적으로 거리가 길어서 path loss를 HO에서 SINR를 고려하기 좀 애매함.
+        cell-coverage 내부만 고려
 
         return uplink signal power
 
@@ -230,16 +230,17 @@ class LEOSATEnv(AECEnv):
         GS_signal_power = np.zeros((len(GS), len(SAT)))
         for i in range(len(GS)):
             for j in range(len(SAT)):
-                dist = np.linalg.norm(GS[i,:] - SAT[j,:])
-                #print(f"{self.timestep}시간, {i}유저와 {j}위성 간 거리 : {dist}") 
-                if GS[i,0] > SAT[j,0]:
-                    delta_f = (1 + self.SAT_speed / 3e5) * freq
-                else:
-                    delta_f = (1 - self.SAT_speed / 3e5) * freq
-                #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-                FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
-                #GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 30
+                if self.coverage_indicator[i][j] == 1:
+                    dist = np.linalg.norm(GS[i,:] - SAT[j,:])
+                    #print(f"{self.timestep}시간, {i}유저와 {j}위성 간 거리 : {dist}") 
+                    if GS[i,0] > SAT[j,0]:
+                        delta_f = (1 + self.SAT_speed / 3e5) * freq
+                    else:
+                        delta_f = (1 - self.SAT_speed / 3e5) * freq
+                    #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
+                    FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
+                    GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
+                    #GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 30
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
 
@@ -261,16 +262,17 @@ class LEOSATEnv(AECEnv):
         # SAT_ifc = np.zeros(self.ifc_SAT_len) # dB 디버깅용, 연산 소모때문에 학습땐 지양.
         SAT_ifc = 0
         for i in range(self.ifc_SAT_len):
-            dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
-            #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
-            if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
-                delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
-            else:
-                delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
-            #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-            FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-            SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
-            #SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
+            if self.ifc_service_indicator[GS_index,i]:
+                dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
+                #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
+                if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
+                    delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
+                else:
+                    delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
+                #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
+                FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
+                SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
+                #SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
 
         # SINR calculate
         SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
@@ -305,15 +307,18 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             for j in range(self.SAT_len*2):
                 self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
-        # Update SINR info, 모든 정보?? 확인 필요! 
+        # Update SINR info, --> cell 반경 밖인 경우 SINR -inf
         if self.interference_mode:
             SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-            SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
+            #SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
             signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
             for i in range(self.GS_size):
                 for j in range(self.SAT_len * self.SAT_plane):
-                    SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
-                SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
+                    if self.coverage_indicator[i][j]:
+                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
+                    else:
+                        SINRs[i][j] = -np.Inf
+                #SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
         # observations
         self.observations = {}
         for i in range(self.GS_size):
@@ -321,7 +326,7 @@ class LEOSATEnv(AECEnv):
                 self.coverage_indicator[i],
                 self.SAT_Load,
                 self.visible_time[i],
-                SINRs_avg[i]
+                SINRs[i]
             )
             self.observations[self.agents[i]] = observation
         
@@ -371,19 +376,20 @@ class LEOSATEnv(AECEnv):
             # Update SINR info
             if self.interference_mode:
                 SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-                SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
                 signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
                 for i in range(self.GS_size):
                     for j in range(self.SAT_len * self.SAT_plane):
-                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
-                    SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
+                        if self.coverage_indicator[i][j]:
+                            SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
+                        else:
+                            SINRs[i][j] = -np.Inf
 
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
                     self.SAT_Load,
                     self.visible_time[i],
-                    SINRs_avg[i]
+                    SINRs[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
             
@@ -410,7 +416,7 @@ class LEOSATEnv(AECEnv):
                         self.agent_status_log[i][self.timestep] = 3
                     else:
                         if self.interference_mode:                         
-                            SINR = float(SINRs_avg[i, np.where(self.service_indicator[i] == 1)])
+                            SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
                             reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR))
                             self.agent_status_log[i][self.timestep] = 4
                             self.SINR_log[i][self.timestep] = SINR
@@ -421,7 +427,7 @@ class LEOSATEnv(AECEnv):
                             self.SINR_log[i][self.timestep] = SINR
                             if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
-            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\nSINR_avg: {SINRs_avg}") # 디버깅시 SINR도 보이게 설정.
+            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
                 self.render()
