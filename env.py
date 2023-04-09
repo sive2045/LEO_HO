@@ -65,7 +65,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
 
-        self.SAT_Tx_power = 11 # dBw ---> 수정 필요
+        self.SAT_Tx_power = 15 # dBw ---> 수정 필요
         self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
         self.SINR_weight = 2 # SINR reward weight
@@ -237,10 +237,10 @@ class LEOSATEnv(AECEnv):
                         delta_f = (1 + self.SAT_speed / 3e5) * freq
                     else:
                         delta_f = (1 - self.SAT_speed / 3e5) * freq
-                    #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-                    FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                    GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
-                    #GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 30
+                    FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
+                    #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
+                    #GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
+                    GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 40
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
 
@@ -254,10 +254,10 @@ class LEOSATEnv(AECEnv):
 
         # noise
         noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
-        #noise = 10 **(0.1*noise_power)
+        noise = 10 **(0.1*noise_power)
 
         # communication constellation interfernce
-        comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] # dB
+        comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] 
         # interference constellation
         # SAT_ifc = np.zeros(self.ifc_SAT_len) # dB 디버깅용, 연산 소모때문에 학습땐 지양.
         SAT_ifc = 0
@@ -269,14 +269,14 @@ class LEOSATEnv(AECEnv):
                     delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
                 else:
                     delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
-                #FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-                FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
-                #SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
+                FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
+                #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
+                #SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
+                SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 10
 
         # SINR calculate
-        SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
-        #SINR = 10*np.log(signal_power[SAT_service_idx] / (comm_ifc + SAT_ifc + noise))
+        #SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
+        SINR = 10*np.log10(signal_power[SAT_service_idx] / (comm_ifc + SAT_ifc + noise))
         #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
