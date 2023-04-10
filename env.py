@@ -165,7 +165,7 @@ class LEOSATEnv(AECEnv):
     def _SAT_coverage_position(self, SAT_point, SAT_coverage, SAT_len, time, speed, radius, theta):
         """
         return real-time SAT coverage position
-        for render
+        (for render)
         """
         _SAT_coverage = np.copy(SAT_coverage)
         for i in range(SAT_len):
@@ -223,7 +223,7 @@ class LEOSATEnv(AECEnv):
         """
         cell-coverage 내부만 고려
 
-        return uplink signal power
+        return donwlink signal power
 
         shadow faiding loss -> avg 1
         """
@@ -246,8 +246,7 @@ class LEOSATEnv(AECEnv):
 
     def _cal_SINR(self, GS_index, signal_power, SAT_service_idx):
         """
-        Input parameter:
-            noise_temperature: 550 [K]
+        Conssidering communication and interference LEO SAT 
         return downlink SINR
         """
         SINR = 0 # [dB]
