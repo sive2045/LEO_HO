@@ -84,7 +84,7 @@ class LEOSATEnv(AECEnv):
         self.ifc_SAT_coverage[:,2,:] = self.ifc_SAT_height
         self.ifc_SAT_BW = 10 # MHz BW
         self.ifc_Tx_power = 8 # dBw ----> 수정 해야함
-        self.ifc_freq = 15 # GHz ---> 주파수 살짝만 다름 고려사항 생각
+        self.ifc_freq = 16 # GHz ---> 고려사항 생각
         self.ifc_service_indicator = np.zeros((self.GS_size, self.ifc_SAT_len)) # indicator: users are in interference SAT
         #|------Agent args--------------------------------------------------------------------------------------------------------------------------|
         self.agents = [f"groud_station_{i}" for i in range(self.GS_size)]
@@ -244,7 +244,7 @@ class LEOSATEnv(AECEnv):
         if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
         return GS_signal_power
 
-    def _cal_SINR(self, GS_index, signal_power, SAT_service_idx, noise_temperature = 550):
+    def _cal_SINR(self, GS_index, signal_power, SAT_service_idx):
         """
         Input parameter:
             noise_temperature: 550 [K]
@@ -253,8 +253,7 @@ class LEOSATEnv(AECEnv):
         SINR = 0 # [dB]
 
         # noise
-        noise_power = 10 * np.log10(noise_temperature / 290 + 1) # [dB]
-        noise = 10 **(0.1*noise_power)
+        noise = 1e-8
 
         # communication constellation interfernce
         comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] 
@@ -272,7 +271,7 @@ class LEOSATEnv(AECEnv):
                 FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
                 #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
                 #SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
-                SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 10
+                SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
 
         # SINR calculate
         #SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
@@ -317,7 +316,7 @@ class LEOSATEnv(AECEnv):
                     if self.coverage_indicator[i][j]:
                         SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
                     else:
-                        SINRs[i][j] = -np.Inf
+                        SINRs[i][j] = -1e8
                 #SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
         # observations
         self.observations = {}
@@ -382,7 +381,7 @@ class LEOSATEnv(AECEnv):
                         if self.coverage_indicator[i][j]:
                             SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
                         else:
-                            SINRs[i][j] = -np.Inf
+                            SINRs[i][j] = -1e8
 
             for i in range(self.GS_size):
                 observation = (
@@ -417,7 +416,7 @@ class LEOSATEnv(AECEnv):
                     else:
                         if self.interference_mode:                         
                             SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
-                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight * 10 ** (0.1*(SINR))
+                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR)
                             self.agent_status_log[i][self.timestep] = 4
                             self.SINR_log[i][self.timestep] = SINR
                             if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight * 10 ** (0.1*(SINR))}")
