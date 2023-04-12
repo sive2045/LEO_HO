@@ -39,7 +39,7 @@ if __name__ == "__main__":
             hidden_sizes=[128, 128, 128, 128],
             device='cpu'
         ).to('cpu')
-        optim = torch.optim.Adam(net.parameters(), lr=1e-6)
+        optim = torch.optim.Adam(net.parameters(), lr=1e-5)
         agent = DQNPolicy(
             net,
             optim,
