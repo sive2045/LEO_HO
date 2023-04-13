@@ -314,8 +314,8 @@ class LEOSATEnv(AECEnv):
                     if self.coverage_indicator[i][j]:
                         SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
                     else:
-                        SINRs[i][j] = -1e8
-                #SINRs_avg[i] = SINRs[i] - np.average(SINRs[i])
+                        SINRs[i][j] = -1e2
+
         # observations
         self.observations = {}
         for i in range(self.GS_size):
@@ -379,7 +379,7 @@ class LEOSATEnv(AECEnv):
                         if self.coverage_indicator[i][j]:
                             SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
                         else:
-                            SINRs[i][j] = -1e8
+                            SINRs[i][j] = -1e2
 
             for i in range(self.GS_size):
                 observation = (
