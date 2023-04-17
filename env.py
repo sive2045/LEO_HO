@@ -502,18 +502,20 @@ class LEOSATEnv(AECEnv):
 
         # Plot Agents' Status
         agents = np.arange(0,10)
-        _status = np.zeros((self.GS_size, 4))
+        _status = np.zeros((self.GS_size, 5))
         for i in range(self.GS_size):
             _status[i][0] = np.count_nonzero(self.agent_status_log[i] == 1)
             _status[i][1] = np.count_nonzero(self.agent_status_log[i] == 2)
             _status[i][2] = np.count_nonzero(self.agent_status_log[i] == 3)
             _status[i][3] = np.count_nonzero(self.agent_status_log[i] == 4)
+            _status[i][4] = np.count_nonzero(self.agent_status_log[i] == 5)
 
         bar_width = 0.1
         status_1 = plt.bar(agents, _status[:,0], bar_width, label='blocked-reate')
-        status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='handover')
-        status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='overload')
-        status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='ACK')
+        status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='HOF-Overload')
+        status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='HO')
+        status_5 = plt.bar(agents + 4*bar_width, _status[:,4], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend()
 
