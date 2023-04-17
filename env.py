@@ -106,7 +106,7 @@ class LEOSATEnv(AECEnv):
         self.debugging = debugging
         
         # Result vars
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: handover, 3: overload, 4: ACK 
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -394,34 +394,38 @@ class LEOSATEnv(AECEnv):
             for i in range(self.GS_size):
                 reward = 0
                 SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
+                _actions = np.array(list(self.states.values()))
+                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -100
+                    reward = -50
                     self.agent_status_log[i][self.timestep] = 1
                 # HO occur
-                elif _service_indicator[i][self.states[self.agents[i]]] == 0 or SINR < self.threshold:
-                    reward = -30
-                    self.agent_status_log[i][self.timestep] = 2
-                    _actions = np.array(list(self.states.values()))
-                    self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
-                else:
-                # Overload
-                    _actions = np.array(list(self.states.values()))
-                    self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
-                    if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
-                        reward = -25
+                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                    # HOF: QoS 
+                    if SINR < self.threshold:
+                        reward = -30
+                        self.agent_status_log[i][self.timestep] = 2
+                    # HOF: Overload
+                    elif np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
+                        reward = -30
                         self.agent_status_log[i][self.timestep] = 3
+                    # HO cost
                     else:
-                        if self.interference_mode:                         
-                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
-                            self.agent_status_log[i][self.timestep] = 4
-                            self.SINR_log[i][self.timestep] = SINR
-                            if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
-                        else:
-                            reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
-                            self.agent_status_log[i][self.timestep] = 4
-                            self.SINR_log[i][self.timestep] = SINR
-                            if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
+                        reward = -15
+                        self.agent_status_log[i][self.timestep] = 4
+                # Ack
+                else:
+                    if self.interference_mode:                         
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
+                        self.agent_status_log[i][self.timestep] = 5
+                        self.SINR_log[i][self.timestep] = SINR
+                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
+                    else:
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                        self.agent_status_log[i][self.timestep] = 5
+                        self.SINR_log[i][self.timestep] = SINR
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
             if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
