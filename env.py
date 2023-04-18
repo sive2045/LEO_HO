@@ -18,6 +18,7 @@
 * v0: Initial versions release (1.0.0)
 * v1: Add interfence SAT, considering SINR (1.1.0)
       -> Trajectory: y = x 
+      Add Banchmark Scheme (1.1.1)
 
 TODO
 1. 결과 그래프 
@@ -116,6 +117,29 @@ class LEOSATEnv(AECEnv):
 
     def action_space(self, agent):
         return self.action_spaces[agent]
+
+    def init_benchmark_scheme(self):
+        """
+        Benchmark Scheme
+
+        1. Maximum Visible Time (MVT)
+        2. Maximum Available Channels (MAC)
+        3. SINR-based 
+        """
+        # MVT
+        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
+        self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
+        
+        # MAC
+        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
+        self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
+
+        # SINR-based
+        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
+        self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
 
     def _GS_random_walk(self, GS, speed):
         """
@@ -332,6 +356,10 @@ class LEOSATEnv(AECEnv):
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
+        # Benchmark Scheme
+        if self.debugging:
+            self.init_benchmark_scheme()
+
         #return self.observations
     
     def observe(self, agent):
@@ -390,6 +418,12 @@ class LEOSATEnv(AECEnv):
                 )
                 self.observations[f"groud_station_{i}"] = observation
             
+            # Benchmark Scheme 
+            # TODO: 아마 for문 안에 넣어얄듯!
+            if self.debugging:
+                for i in range(self.GS_size):
+                    pass
+
             # rewards
             for i in range(self.GS_size):
                 reward = 0
