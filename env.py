@@ -22,7 +22,7 @@
 
 TODO
 1. 결과 그래프 
-2. 벤치 마킹 스킴 추가 구현
+2. 벤치 마킹 스킴 추가 구현, 세부 결정
 """
 import matplotlib.pyplot as plt
 from copy import copy
