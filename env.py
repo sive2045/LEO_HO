@@ -417,12 +417,6 @@ class LEOSATEnv(AECEnv):
                     SINRs[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
-            
-            # Benchmark Scheme 
-            # TODO: 아마 for문 안에 넣어얄듯!
-            if self.debugging:
-                for i in range(self.GS_size):
-                    pass
 
             # rewards
             for i in range(self.GS_size):
@@ -461,6 +455,14 @@ class LEOSATEnv(AECEnv):
                         self.SINR_log[i][self.timestep] = SINR
                         if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
+
+                # Benchmark
+                # TODO: HOF시 대기 인덱스 선택하도록 수정하기. --> HOF시 무조건 HO일어나도록 설정.
+                if self.debugging:
+                    # MVT
+                    if self.coverage_indicator[i][self.MVT_service_index] == 0:
+                        pass
+
             if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
             if self.render_mode == "human":
