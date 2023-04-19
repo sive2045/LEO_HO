@@ -428,16 +428,19 @@ class LEOSATEnv(AECEnv):
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -50
                     self.agent_status_log[i][self.timestep] = 1
+                    self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                 # HO occur
                 elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
                     # HOF: QoS 
                     if SINR < self.threshold:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 2
+                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HOF: Overload
                     elif np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 3
+                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
                         reward = -15
@@ -457,13 +460,48 @@ class LEOSATEnv(AECEnv):
                 self.rewards[self.agents[i]] = reward
 
                 # Benchmark
-                # TODO: HOF시 대기 인덱스 선택하도록 수정하기. --> HOF시 무조건 HO일어나도록 설정.
-                if self.debugging:
+                if self.debugging:                    
                     # MVT
-                    if self.coverage_indicator[i][self.MVT_service_index] == 0:
-                        pass
+                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0:
+                        idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
+                        # HOF: Overload
+                        if self.SAT_Load[idx] < np.count_nonzero(idx == self.MVT_service_index):
+                            self.MVT_status_log[i] = 3
+                        # HO
+                        else:
+                            self.MVT_service_index[i] = idx
+                            self.MVT_status_log[i] = 4
+                    else:
+                        self.MVT_status_log[i] = 5
+                    
+                    # MAC
+                    if self.coverage_indicator[i][self.MAC_service_index[i]] == 0:
+                        _load_data = np.zeros(self.SAT_len*self.SAT_plane)
+                        for j in range(self.SAT_len*self.SAT_plane):
+                            if self.coverage_indicator[i][j] == 0: pass
+                            else:
+                                _load_data[j] = self.SAT_Load[j] - np.count_nonzero(self.MAC_service_index == j)
+                        idx = np.where(_load_data == np.max(_load_data))[0][0]
+                        self.MAC_service_index[i] = idx
+                        self.MAC_status_log[i] = 4
+                    else:
+                        self.MAC_status_log[i] = 5
 
-            if self.debugging: print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+                    # SINR-based
+                    if self.coverage_indicator[i][self.SINR_service_index[i]] == 0:
+                        idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
+                        # HOF: Overload
+                        if self.SAT_Load[idx] < np.count_nonzero(idx == self.SINR_service_index):
+                            self.SINR_status_log[i] = 3
+                        # HO
+                        else:
+                            self.SINR_service_index[i] = idx
+                            self.SINR_status_log[i] = 4
+                    else:
+                        self.SINR_status_log[i] = 5
+                
+                print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+
 
             if self.render_mode == "human":
                 self.render()
@@ -505,13 +543,14 @@ class LEOSATEnv(AECEnv):
         axes.plot([0,100,100,0,0], [0,0,100,100,0])
         # Plot ground stations
         axes.plot(self.GS[:,0], self.GS[:,1], '*')
-        # Plot Selected line        
-        for i in range(self.GS_size): # train 단에서 버그발견 수정 해야함
-            axes.plot(
-                (self.GS[i,0], self.SAT_point[self.states[self.agents[i]],0]),
-                (self.GS[i,1], self.SAT_point[self.states[self.agents[i]],1]),
-                "--k", linewidth=1
-                )
+        # Plot Selected line; 대기 상태면 선 x
+        for i in range(self.GS_size):
+            if np.count_nonzero(self.service_indicator[i]):
+                axes.plot(
+                    (self.GS[i,0], self.SAT_point[self.states[self.agents[i]],0]),
+                    (self.GS[i,1], self.SAT_point[self.states[self.agents[i]],1]),
+                    "--k", linewidth=1
+                    )
         
         if self.interference_mode:
             # Plot Interference SATs' point
