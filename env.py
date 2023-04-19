@@ -500,7 +500,7 @@ class LEOSATEnv(AECEnv):
                     else:
                         self.SINR_status_log[i] = 5
                 
-                print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+                    print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
 
             if self.render_mode == "human":
