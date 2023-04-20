@@ -569,13 +569,15 @@ class LEOSATEnv(AECEnv):
         Plot result graphs
 
         0. Agents' Handover Average
-        1. Agents' SINR Average
-        2. Load Balancing
+        1. MVT
+        2. MAC
+        3. SINR-based
         """
         for i in range(self.GS_size):
             print(f"{i}-th Agent's episode average SINR: {np.average(self.SINR_log[i,:])}")
 
         # Plot Agents' Status
+        plt.figure(1)
         agents = np.arange(0,10)
         _status = np.zeros((self.GS_size, 5))
         for i in range(self.GS_size):
@@ -592,7 +594,64 @@ class LEOSATEnv(AECEnv):
         status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='HO')
         status_5 = plt.bar(agents + 4*bar_width, _status[:,4], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
-        plt.xlabel('# of Agent'); plt.legend()
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("MADL-based")
+
+        # Plot Benchmark-MVT
+        plt.figure(2)
+        MVT_status = np.zeros((self.GS_size, 5))
+        for i in range(self.GS_size):
+            MVT_status[i][0] = np.count_nonzero(self.MVT_status_log[i] == 1)
+            MVT_status[i][1] = np.count_nonzero(self.MVT_status_log[i] == 2)
+            MVT_status[i][2] = np.count_nonzero(self.MVT_status_log[i] == 3)
+            MVT_status[i][3] = np.count_nonzero(self.MVT_status_log[i] == 4)
+            MVT_status[i][4] = np.count_nonzero(self.MVT_status_log[i] == 5)
+
+        bar_width = 0.1
+        status_1 = plt.bar(agents, MVT_status[:,0], bar_width, label='blocked-reate')
+        status_2 = plt.bar(agents + bar_width, MVT_status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, MVT_status[:,2], bar_width, label='HOF-Overload')
+        status_4 = plt.bar(agents + 3*bar_width, MVT_status[:,3], bar_width, label='HO')
+        status_5 = plt.bar(agents + 4*bar_width, MVT_status[:,4], bar_width, label='ACK')
+        plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("MVT")
+
+        # Plot Benchmark-MAC
+        plt.figure(3)
+        MAC_status = np.zeros((self.GS_size, 5))
+        for i in range(self.GS_size):
+            MAC_status[i][0] = np.count_nonzero(self.MAC_status_log[i] == 1)
+            MAC_status[i][1] = np.count_nonzero(self.MAC_status_log[i] == 2)
+            MAC_status[i][2] = np.count_nonzero(self.MAC_status_log[i] == 3)
+            MAC_status[i][3] = np.count_nonzero(self.MAC_status_log[i] == 4)
+            MAC_status[i][4] = np.count_nonzero(self.MAC_status_log[i] == 5)
+
+        bar_width = 0.1
+        status_1 = plt.bar(agents, MAC_status[:,0], bar_width, label='blocked-reate')
+        status_2 = plt.bar(agents + bar_width, MAC_status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,2], bar_width, label='HOF-Overload')
+        status_4 = plt.bar(agents + 3*bar_width, MAC_status[:,3], bar_width, label='HO')
+        status_5 = plt.bar(agents + 4*bar_width, MAC_status[:,4], bar_width, label='ACK')
+        plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
+
+        # Plot Benchmark-SINR
+        plt.figure(4)
+        SINR_status = np.zeros((self.GS_size, 5))
+        for i in range(self.GS_size):
+            SINR_status[i][0] = np.count_nonzero(self.SINR_status_log[i] == 1)
+            SINR_status[i][1] = np.count_nonzero(self.SINR_status_log[i] == 2)
+            SINR_status[i][2] = np.count_nonzero(self.SINR_status_log[i] == 3)
+            SINR_status[i][3] = np.count_nonzero(self.SINR_status_log[i] == 4)
+            SINR_status[i][4] = np.count_nonzero(self.SINR_status_log[i] == 5)
+
+        bar_width = 0.1
+        status_1 = plt.bar(agents, SINR_status[:,0], bar_width, label='blocked-reate')
+        status_2 = plt.bar(agents + bar_width, SINR_status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, SINR_status[:,2], bar_width, label='HOF-Overload')
+        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='HO')
+        status_5 = plt.bar(agents + 4*bar_width, SINR_status[:,4], bar_width, label='ACK')
+        plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("SINR-based")
 
         plt.show()
 
