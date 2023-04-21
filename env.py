@@ -130,16 +130,19 @@ class LEOSATEnv(AECEnv):
         self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
         self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
         self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
+        self.MVT_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         
         # MAC
         self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
         self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
         self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
+        self.MAC_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         # SINR-based
         self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
         self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
         self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
+        self.SINR_based_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
 
     def _GS_random_walk(self, GS, speed):
         """
@@ -460,22 +463,26 @@ class LEOSATEnv(AECEnv):
                 self.rewards[self.agents[i]] = reward
 
                 # Benchmark
-                if self.debugging:                    
+                if self.debugging: 
+                    print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
+                    print(f"{self.timestep}-time step, {i}-th agent info: MAC: {self.MAC_service_index[i]}")
+                    print(f"{self.timestep}-time step, {i}-th agent info: SINR: {self.SINR_service_index[i]}")
                     # MVT
-                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0:
+                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or SINRs[i][self.MVT_service_index[i]] < self.threshold:
                         idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
                         # HOF: Overload
                         if self.SAT_Load[idx] < np.count_nonzero(idx == self.MVT_service_index):
-                            self.MVT_status_log[i] = 3
+                            self.MVT_status_log[i][self.timestep] = 3
                         # HO
                         else:
                             self.MVT_service_index[i] = idx
-                            self.MVT_status_log[i] = 4
+                            self.MVT_status_log[i][self.timestep] = 4
                     else:
-                        self.MVT_status_log[i] = 5
+                        self.MVT_status_log[i][self.timestep] = 5
+                        self.MVT_SINR_log[i][self.timestep] = SINRs[i][self.MVT_service_index[i]]
                     
                     # MAC
-                    if self.coverage_indicator[i][self.MAC_service_index[i]] == 0:
+                    if self.coverage_indicator[i][self.MAC_service_index[i]] == 0 or SINRs[i][self.MAC_service_index[i]] < self.threshold:
                         _load_data = np.zeros(self.SAT_len*self.SAT_plane)
                         for j in range(self.SAT_len*self.SAT_plane):
                             if self.coverage_indicator[i][j] == 0: pass
@@ -483,23 +490,24 @@ class LEOSATEnv(AECEnv):
                                 _load_data[j] = self.SAT_Load[j] - np.count_nonzero(self.MAC_service_index == j)
                         idx = np.where(_load_data == np.max(_load_data))[0][0]
                         self.MAC_service_index[i] = idx
-                        self.MAC_status_log[i] = 4
+                        self.MAC_status_log[i][self.timestep] = 4
                     else:
-                        self.MAC_status_log[i] = 5
+                        self.MAC_status_log[i][self.timestep] = 5
+                        self.MAC_SINR_log[i][self.timestep] = SINRs[i][self.MAC_service_index[i]]
 
                     # SINR-based
-                    if self.coverage_indicator[i][self.SINR_service_index[i]] == 0:
+                    if self.coverage_indicator[i][self.SINR_service_index[i]] == 0 or SINRs[i][self.SINR_service_index[i]] < self.threshold:
                         idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
                         # HOF: Overload
                         if self.SAT_Load[idx] < np.count_nonzero(idx == self.SINR_service_index):
-                            self.SINR_status_log[i] = 3
+                            self.SINR_status_log[i][self.timestep] = 3
                         # HO
                         else:
                             self.SINR_service_index[i] = idx
-                            self.SINR_status_log[i] = 4
+                            self.SINR_status_log[i][self.timestep] = 4
                     else:
-                        self.SINR_status_log[i] = 5
-                
+                        self.SINR_status_log[i][self.timestep] = 5
+                        self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
                     print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
 
@@ -573,8 +581,25 @@ class LEOSATEnv(AECEnv):
         2. MAC
         3. SINR-based
         """
+
+        # SINR은 생각해봐야함.. 생각한대로 결과가 안나옴!
         for i in range(self.GS_size):
-            print(f"{i}-th Agent's episode average SINR: {np.average(self.SINR_log[i,:])}")
+            MADL_SINR = 0
+            MVT_SINR = 0
+            MAC_SINR = 0
+            SINR_based_SINR = 0
+            print(f"{i}-th Agent's episode average SINR (MADL based): {np.average(self.SINR_log[i,:])}")
+            MADL_SINR += np.average(self.SINR_log[i,:])
+            print(f"{i}-th Agent's episode average SINR (MVT based): {np.average(self.MVT_SINR_log[i,:])}")
+            MVT_SINR += np.average(self.MVT_SINR_log[i,:])
+            print(f"{i}-th Agent's episode average SINR (MAC based): {np.average(self.MAC_SINR_log[i,:])}")
+            MAC_SINR += np.average(self.MAC_SINR_log[i,:])
+            print(f"{i}-th Agent's episode average SINR (SINR based): {np.average(self.SINR_based_SINR_log[i,:])}")
+            SINR_based_SINR += np.average(self.SINR_based_SINR_log[i,:])
+        print(f"MADL episode average SINR:{MADL_SINR/self.GS_size}")
+        print(f"MVT episode average SINR:{MVT_SINR/self.GS_size}")
+        print(f"MAC episode average SINR:{MAC_SINR/self.GS_size}")
+        print(f"SINR-based episode average SINR:{SINR_based_SINR/self.GS_size}")
 
         # Plot Agents' Status
         plt.figure(1)
