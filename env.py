@@ -355,7 +355,7 @@ class LEOSATEnv(AECEnv):
             self.observations[self.agents[i]] = observation
         
         # logs
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: handover, 3: overload, 4: ACK 
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -677,6 +677,41 @@ class LEOSATEnv(AECEnv):
         status_5 = plt.bar(agents + 4*bar_width, SINR_status[:,4], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("SINR-based")
+
+        # Plot comparsion of accumlative HO?
+        plt.figure(5)
+        ACK_MADQN = np.zeros((self.terminal_time+1))
+        ACK_MVT   = np.zeros((self.terminal_time+1))
+        ACK_MAC   = np.zeros((self.terminal_time+1))
+        ACK_SINR  = np.zeros((self.terminal_time+1))
+        for agent in range(self.GS_size):
+            for t in range(self.terminal_time+1):
+                if self.agent_status_log[agent][t] == 4:
+                    ACK_MADQN[t:] += 1
+                if self.MVT_status_log[agent][t] == 4:
+                    ACK_MVT[t:] += 1
+                if self.MAC_status_log[agent][t] == 4:
+                    ACK_MAC[t:] += 1
+                if self.SINR_status_log[agent][t] == 4:
+                    ACK_SINR[t:] += 1
+        
+        ACK_MADQN[:] /= self.GS_size
+        ACK_MVT[:] /= self.GS_size
+        ACK_MAC[:] /= self.GS_size
+        ACK_SINR[:] /= self.GS_size
+        time_step = np.arange(self.terminal_time)
+        interval = 15 # mark interveal
+
+        plt.plot(time_step, ACK_MADQN[1:], label='MADQN', marker='*', markevery=interval)
+
+        plt.plot(time_step, ACK_MVT[1:], label='MVT', marker='.', markevery=interval)        
+
+        plt.plot(time_step, ACK_MAC[1:], label='MAC', marker='|', markevery=interval)
+
+        plt.plot(time_step, ACK_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
+
+        plt.xlim((1,155))
+        plt.ylabel('Average Handover'); plt.legend(); plt.xlabel('time step t'); plt.grid()
 
         plt.show()
 
