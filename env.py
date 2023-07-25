@@ -46,7 +46,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 30 # [dBi]
         self.shadow_fading = 0.5 # [dB]
         self.GS_Tx_power = 23e-3 # 23 dBm
-        self.threshold = -5 # [dB]
+        self.threshold = -4 # [dB]
 
         self.timestep = None
         self.terminal_time = 155 # s
@@ -470,8 +470,14 @@ class LEOSATEnv(AECEnv):
                     # MVT
                     if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or SINRs[i][self.MVT_service_index[i]] < self.threshold:
                         idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
+                        # HOF: non-coverage area
+                        # if self.coverage_indicator[i][self.MVT_service_index[idx]] == 0:
+                        #     self.MVT_status_log[i][self.timestep] = 1
+                        # HOF: SINR
+                        if SINRs[i][self.MVT_service_index[idx]] < self.threshold:
+                            self.MVT_status_log[i][self.timestep] = 2
                         # HOF: Overload
-                        if self.SAT_Load[idx] < np.count_nonzero(idx == self.MVT_service_index):
+                        elif self.SAT_Load[idx] < np.count_nonzero(idx == self.MVT_service_index):
                             self.MVT_status_log[i][self.timestep] = 3
                         # HO
                         else:
@@ -490,7 +496,13 @@ class LEOSATEnv(AECEnv):
                                 _load_data[j] = self.SAT_Load[j] - np.count_nonzero(self.MAC_service_index == j)
                         idx = np.where(_load_data == np.max(_load_data))[0][0]
                         self.MAC_service_index[i] = idx
-                        self.MAC_status_log[i][self.timestep] = 4
+                        # HOF: non-coverage area
+                        if self.coverage_indicator[i][self.MAC_service_index[idx]] == 0:
+                            self.MAC_status_log[i][self.timestep] = 1
+                        # HOF: SINR
+                        elif SINRs[i][self.MAC_service_index[idx]] < self.threshold:
+                            self.MAC_status_log[i][self.timestep] = 2
+                        else: self.MAC_status_log[i][self.timestep] = 4
                     else:
                         self.MAC_status_log[i][self.timestep] = 5
                         self.MAC_SINR_log[i][self.timestep] = SINRs[i][self.MAC_service_index[i]]
@@ -498,6 +510,9 @@ class LEOSATEnv(AECEnv):
                     # SINR-based
                     if self.coverage_indicator[i][self.SINR_service_index[i]] == 0 or SINRs[i][self.SINR_service_index[i]] < self.threshold:
                         idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
+                        # HOF: non-coverage area
+                        if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
+                            self.SINR_status_log[i][self.timestep] = 1
                         # HOF: Overload
                         if self.SAT_Load[idx] < np.count_nonzero(idx == self.SINR_service_index):
                             self.SINR_status_log[i][self.timestep] = 3
@@ -582,7 +597,7 @@ class LEOSATEnv(AECEnv):
         3. SINR-based
         """
 
-        # SINR은 생각해봐야함.. 생각한대로 결과가 안나옴!
+        # SINR 수정해야함 -> Ack 시 통신 SINR만 추출해야함
         for i in range(self.GS_size):
             MADL_SINR = 0
             MVT_SINR = 0
@@ -613,7 +628,7 @@ class LEOSATEnv(AECEnv):
             _status[i][4] = np.count_nonzero(self.agent_status_log[i] == 5)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, _status[:,0], bar_width, label='blocked-reate')
+        status_1 = plt.bar(agents, _status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='HOF-QoS')
         status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='HOF-Overload')
         status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='HO')
@@ -632,7 +647,7 @@ class LEOSATEnv(AECEnv):
             MVT_status[i][4] = np.count_nonzero(self.MVT_status_log[i] == 5)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, MVT_status[:,0], bar_width, label='blocked-reate')
+        status_1 = plt.bar(agents, MVT_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,1], bar_width, label='HOF-QoS')
         status_3 = plt.bar(agents + 2*bar_width, MVT_status[:,2], bar_width, label='HOF-Overload')
         status_4 = plt.bar(agents + 3*bar_width, MVT_status[:,3], bar_width, label='HO')
@@ -651,7 +666,7 @@ class LEOSATEnv(AECEnv):
             MAC_status[i][4] = np.count_nonzero(self.MAC_status_log[i] == 5)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, MAC_status[:,0], bar_width, label='blocked-reate')
+        status_1 = plt.bar(agents, MAC_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, MAC_status[:,1], bar_width, label='HOF-QoS')
         status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,2], bar_width, label='HOF-Overload')
         status_4 = plt.bar(agents + 3*bar_width, MAC_status[:,3], bar_width, label='HO')
@@ -670,7 +685,7 @@ class LEOSATEnv(AECEnv):
             SINR_status[i][4] = np.count_nonzero(self.SINR_status_log[i] == 5)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, SINR_status[:,0], bar_width, label='blocked-reate')
+        status_1 = plt.bar(agents, SINR_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, SINR_status[:,1], bar_width, label='HOF-QoS')
         status_3 = plt.bar(agents + 2*bar_width, SINR_status[:,2], bar_width, label='HOF-Overload')
         status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='HO')
@@ -678,40 +693,110 @@ class LEOSATEnv(AECEnv):
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("SINR-based")
 
-        # Plot comparsion of accumlative HO?
+        # ACK variance
+        print(f"ACK var --> MADQN: {np.var(_status[:,4])}, MVT: {np.var(MVT_status[:,4])}, MAC: {np.var(MAC_status[:,4])}, SINR: {SINR_status[:,4]}")
+        
+        # Plot comparsion of Ack HO strategies
+        plt.figure(7)
+        bar_width = 0.1
+        status_1 = plt.bar(agents, _status[:,4], bar_width, label='MADQN')
+        status_2 = plt.bar(agents + bar_width, MVT_status[:,4], bar_width, label='MVT')
+        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,4], bar_width, label='MAC')
+        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,4], bar_width, label='MAX-SINR')
+        plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
+        plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
+
+        # Plot comparsion of average handover
         plt.figure(5)
-        ACK_MADQN = np.zeros((self.terminal_time+1))
-        ACK_MVT   = np.zeros((self.terminal_time+1))
-        ACK_MAC   = np.zeros((self.terminal_time+1))
-        ACK_SINR  = np.zeros((self.terminal_time+1))
+        HO_MADQN = np.zeros((self.terminal_time+1))
+        HO_MVT   = np.zeros((self.terminal_time+1))
+        HO_MAC   = np.zeros((self.terminal_time+1))
+        HO_SINR  = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
-                if self.agent_status_log[agent][t] == 4:
-                    ACK_MADQN[t:] += 1
-                if self.MVT_status_log[agent][t] == 4:
-                    ACK_MVT[t:] += 1
-                if self.MAC_status_log[agent][t] == 4:
-                    ACK_MAC[t:] += 1
-                if self.SINR_status_log[agent][t] == 4:
-                    ACK_SINR[t:] += 1
+                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3 or self.agent_status_log[agent][t] == 4:
+                    HO_MADQN[t:] += 1
+                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3 or self.MVT_status_log[agent][t] == 4:
+                    HO_MVT[t:] += 1
+                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3 or self.MAC_status_log[agent][t] == 4:
+                    HO_MAC[t:] += 1
+                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3 or self.SINR_status_log[agent][t] == 4:
+                    HO_SINR[t:] += 1
         
-        ACK_MADQN[:] /= self.GS_size
-        ACK_MVT[:] /= self.GS_size
-        ACK_MAC[:] /= self.GS_size
-        ACK_SINR[:] /= self.GS_size
+        HO_MADQN[:] /= self.GS_size
+        HO_MVT[:] /= self.GS_size
+        HO_MAC[:] /= self.GS_size
+        HO_SINR[:] /= self.GS_size
         time_step = np.arange(self.terminal_time)
         interval = 15 # mark interveal
 
-        plt.plot(time_step, ACK_MADQN[1:], label='MADQN', marker='*', markevery=interval)
+        plt.plot(time_step, HO_MADQN[1:], label='MADQN', marker='*', markevery=interval)
 
-        plt.plot(time_step, ACK_MVT[1:], label='MVT', marker='.', markevery=interval)        
+        plt.plot(time_step, HO_MVT[1:], label='MVT', marker='.', markevery=interval)        
 
-        plt.plot(time_step, ACK_MAC[1:], label='MAC', marker='|', markevery=interval)
+        plt.plot(time_step, HO_MAC[1:], label='MAC', marker='|', markevery=interval)
 
-        plt.plot(time_step, ACK_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
+        plt.plot(time_step, HO_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
 
         plt.xlim((1,155))
-        plt.ylabel('Average Handover'); plt.legend(); plt.xlabel('time step t'); plt.grid()
+        plt.ylabel('Average handover'); plt.legend(); plt.xlabel('time step'); plt.grid()
+
+
+        # Plot comprasion of HOF rate
+        plt.figure(6)
+        HOF_MADQN = np.zeros((self.terminal_time+1))
+        HOF_MVT   = np.zeros((self.terminal_time+1))
+        HOF_MAC   = np.zeros((self.terminal_time+1))
+        HOF_SINR  = np.zeros((self.terminal_time+1))
+        for agent in range(self.GS_size):
+            for t in range(self.terminal_time+1):
+                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3:
+                    HOF_MADQN[t:] += 1
+                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3:
+                    HOF_MVT[t:] += 1
+                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3:
+                    HOF_MAC[t:] += 1
+                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3:
+                    HOF_SINR[t:] += 1
+        
+        HOF_MADQN /= self.GS_size
+        HOF_MVT   /= self.GS_size
+        HOF_MAC   /= self.GS_size
+        HOF_SINR  /= self.GS_size
+
+        _HOF_MADQN = (HOF_MADQN[-1]) / (HO_MADQN[-1])
+        _HOF_MVT   = (HOF_MVT[-1]) / (HO_MVT[-1])
+        _HOF_MAC   = (HOF_MAC[-1]) / (HO_MAC[-1])
+        _HOF_SINR  = (HOF_SINR[-1]) / (HO_SINR[-1])
+        
+        HOF_MADQN[:] = _HOF_MADQN
+        HOF_MVT[:]   = _HOF_MVT  
+        HOF_MAC[:]   = _HOF_MAC  
+        HOF_SINR[:]  = _HOF_SINR 
+
+        time_step = np.arange(self.terminal_time)
+        interval = 15 # mark interveal
+
+        plt.plot(time_step, HOF_MADQN[1:], label='MADQN', marker='*', markevery=interval)
+
+        plt.plot(time_step, HOF_MVT[1:], label='MVT', marker='.', markevery=interval)        
+
+        plt.plot(time_step, HOF_MAC[1:], label='MAC', marker='|', markevery=interval)
+
+        plt.plot(time_step, HOF_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
+
+        plt.xlim((1,155))
+        plt.ylabel('Average handover failure rate'); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
+
+        print(f"MADQN average HO: {HO_MADQN[-1]}")
+        print(f"MVT average HO: {HO_MVT[-1]}")
+        print(f"MAC average HO: {HO_MAC[-1]}")
+        print(f"SINR average HO: {HO_SINR[-1]}")
+
+        print(f"MADQN average HOF rate: {HOF_MADQN[-1]}")
+        print(f"MVT average HOF rate: {HOF_MVT[-1]}")
+        print(f"MAC average HOF rate: {HOF_MAC[-1]}")
+        print(f"SINR average HOF rate: {HOF_SINR[-1]}")
 
         plt.show()
 
