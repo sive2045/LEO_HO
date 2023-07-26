@@ -758,7 +758,7 @@ class LEOSATEnv(AECEnv):
                     HOF_MAC[t:] += 1
                 if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3:
                     HOF_SINR[t:] += 1
-        
+
         HOF_MADQN /= self.GS_size
         HOF_MVT   /= self.GS_size
         HOF_MAC   /= self.GS_size
@@ -797,6 +797,24 @@ class LEOSATEnv(AECEnv):
         print(f"MVT average HOF rate: {HOF_MVT[-1]}")
         print(f"MAC average HOF rate: {HOF_MAC[-1]}")
         print(f"SINR average HOF rate: {HOF_SINR[-1]}")
+
+        cnt_HOF_MADQN = np.sum(_status[:,2]) + np.sum(_status[:,3])
+        cnt_HOF_MVT   = np.sum(MVT_status[:,2]) + np.sum(MVT_status[:,3])
+        cnt_HOF_MAC   = np.sum(MAC_status[:,2]) + np.sum(MAC_status[:,3])
+        cnt_HOF_SINR  = np.sum(SINR_status[:,2]) + np.sum(SINR_status[:,3])
+
+        print(f"MADQN 스킴 핸드오버실패 총 횟수: {cnt_HOF_MADQN},\
+              QoS: 횟수-{np.sum(_status[:,2])}, 비율-{(np.sum(_status[:,2]))/cnt_HOF_MADQN}\
+              Load: 횟수-{np.sum(_status[:,3])}, 비율-{(np.sum(_status[:,3]))/cnt_HOF_MADQN}")
+        print(f"MVT 스킴 핸드오버실패 총 횟수: {cnt_HOF_MVT}, \
+              QoS: 횟수-{np.sum(MVT_status[:,2])}, 비율-{(np.sum(MVT_status[:,2]))/cnt_HOF_MVT}\
+              Load: 횟수-{np.sum(MVT_status[:,3])}, 비율-{(np.sum(MVT_status[:,3]))/cnt_HOF_MVT}")
+        print(f"MAC 스킴 핸드오버실패 총 횟수: {cnt_HOF_MAC}, \
+              QoS: 횟수-{np.sum(MAC_status[:,2])}, 비율-{(np.sum(MAC_status[:,2]))/cnt_HOF_MAC}\
+              Load: 횟수-{np.sum(MAC_status[:,3])}, 비율-{(np.sum(MAC_status[:,3]))/cnt_HOF_MAC}")
+        print(f"MAX-SINR 스킴 핸드오버실패 총 횟수: {cnt_HOF_SINR},  \
+              QoS: 횟수-{np.sum(SINR_status[:,2])}, 비율-{(np.sum(SINR_status[:,2]))/cnt_HOF_SINR}\
+              Load: 횟수-{np.sum(SINR_status[:,3])}, 비율-{(np.sum(SINR_status[:,3]))/cnt_HOF_SINR}")
 
         plt.show()
 
