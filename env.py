@@ -61,7 +61,8 @@ class LEOSATEnv(AECEnv):
         self.SAT_height = 500 # km, SAT height
         self.SAT_point[:,2] = self.SAT_height # km, SAT height 
         self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
-        self.SAT_Load = np.full(self.SAT_len*self.SAT_plane, 5) # the available channels of SAT
+        self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 5) # the maximum available channels of SAT
+        self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
 
@@ -304,6 +305,12 @@ class LEOSATEnv(AECEnv):
         #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
+    def _update_load_SAT(self):
+        pass
+
+    def _get_load_SAT(self, GS_idx):
+        pass
+
     def reset(self, seed=None, return_info=False, options=None):
         self.timestep = 0
 
@@ -348,7 +355,7 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             observation = (
                 self.coverage_indicator[i],
-                self.SAT_Load,
+                self.SAT_Load_MAX,
                 self.visible_time[i],
                 SINRs[i]
             )
@@ -415,7 +422,7 @@ class LEOSATEnv(AECEnv):
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
-                    self.SAT_Load,
+                    self.SAT_Load_MAX,
                     self.visible_time[i],
                     SINRs[i]
                 )
@@ -440,7 +447,7 @@ class LEOSATEnv(AECEnv):
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HOF: Overload
-                    elif np.count_nonzero(_actions == _actions[i]) > self.SAT_Load[_actions[i]]:
+                    elif np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 3
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
@@ -451,15 +458,15 @@ class LEOSATEnv(AECEnv):
                 # Ack
                 else:
                     if self.interference_mode:                         
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
                         self.agent_status_log[i][self.timestep] = 5
                         self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
+                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
                     else:
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
                         self.agent_status_log[i][self.timestep] = 5
                         self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
                 self.rewards[self.agents[i]] = reward
 
                 # Benchmark
@@ -477,7 +484,7 @@ class LEOSATEnv(AECEnv):
                         if SINRs[i][self.MVT_service_index[idx]] < self.threshold:
                             self.MVT_status_log[i][self.timestep] = 2
                         # HOF: Overload
-                        elif self.SAT_Load[idx] < np.count_nonzero(idx == self.MVT_service_index):
+                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MVT_service_index):
                             self.MVT_status_log[i][self.timestep] = 3
                         # HO
                         else:
@@ -493,7 +500,7 @@ class LEOSATEnv(AECEnv):
                         for j in range(self.SAT_len*self.SAT_plane):
                             if self.coverage_indicator[i][j] == 0: pass
                             else:
-                                _load_data[j] = self.SAT_Load[j] - np.count_nonzero(self.MAC_service_index == j)
+                                _load_data[j] = self.SAT_Load_MAX[j] - np.count_nonzero(self.MAC_service_index == j)
                         idx = np.where(_load_data == np.max(_load_data))[0][0]
                         self.MAC_service_index[i] = idx
                         # HOF: non-coverage area
@@ -514,7 +521,7 @@ class LEOSATEnv(AECEnv):
                         if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
                             self.SINR_status_log[i][self.timestep] = 1
                         # HOF: Overload
-                        if self.SAT_Load[idx] < np.count_nonzero(idx == self.SINR_service_index):
+                        if self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
                             self.SINR_status_log[i][self.timestep] = 3
                         # HO
                         else:
