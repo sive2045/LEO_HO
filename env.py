@@ -63,6 +63,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
         self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 5) # the maximum available channels of SAT
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
+        self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
         self.SAT_BW = 10 # MHz BW budget of SAT
         self.freq = 14 # GHz
 
@@ -305,11 +306,24 @@ class LEOSATEnv(AECEnv):
         #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
-    def _update_load_SAT(self):
-        pass
+    def _update_load_SAT(self) -> None:
+        '''
+        time slot 한번당 실행
+        -> 초기화 후 사용
+        '''
+        self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
+        for i in range(self.GS_size):
+            self.SAT_Load[self.states[self.agents[i]]] += 1
 
-    def _get_load_SAT(self, GS_idx):
-        pass
+    def _get_load_SAT(self) -> None:
+        self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
+        for gs_idx in range(self.GS_size):
+            _load_info = np.zeros((self.SAT_len*self.SAT_plane))
+            for SAT_idx in range(self.SAT_len*self.SAT_plane):
+                if self.coverage_indicator[gs_idx][SAT_idx]:
+                    _load_info[SAT_idx] = np.max((0, self.SAT_Load_MAX[SAT_idx] - self.SAT_Load[SAT_idx]))
+                else: _load_info[SAT_idx] = 0
+            self.load_info[gs_idx] = _load_info
 
     def reset(self, seed=None, return_info=False, options=None):
         self.timestep = 0
@@ -355,7 +369,7 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             observation = (
                 self.coverage_indicator[i],
-                self.SAT_Load_MAX,
+                self.load_info[i],
                 self.visible_time[i],
                 SINRs[i]
             )
@@ -404,6 +418,10 @@ class LEOSATEnv(AECEnv):
             if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
             # Update coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
+            # Update load info
+            self._update_load_SAT()
+            # Get load info
+            self._get_load_SAT()
             # Get visible time        
             for i in range(self.GS_size):
                 for j in range(self.SAT_len*2):
@@ -422,7 +440,7 @@ class LEOSATEnv(AECEnv):
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
-                    self.SAT_Load_MAX,
+                    self.load_info[i],
                     self.visible_time[i],
                     SINRs[i]
                 )
@@ -471,6 +489,7 @@ class LEOSATEnv(AECEnv):
 
                 # Benchmark
                 if self.debugging: 
+                    print(f"{self.timestep}-time step, {i}-th agent's load info: {self.load_info[i]}")
                     print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
                     print(f"{self.timestep}-time step, {i}-th agent info: MAC: {self.MAC_service_index[i]}")
                     print(f"{self.timestep}-time step, {i}-th agent info: SINR: {self.SINR_service_index[i]}")
