@@ -27,6 +27,8 @@ TODO
 import matplotlib.pyplot as plt
 from copy import copy
 
+from itertools import groupby
+import random
 import numpy as np
 from gymnasium import spaces
 
@@ -167,6 +169,17 @@ class LEOSATEnv(AECEnv):
                 _GS[i,1] -= speed
         
         return _GS
+
+    def _select_random_index(self, GS_indices) -> list:
+        '''
+        if overloaded state occurs,
+        return SAT allocate indices list and overload indices list
+        --> [selected_list, remaining_list]
+        '''
+        selected = random.sample(GS_indices, self.SAT_Load_MAX)
+        selected_list = list(selected)
+        remaining_list = [item for item in GS_indices if item not in selected]
+        return [selected_list, remaining_list]
 
     def _SAT_coordinate(self, SAT, SAT_len, time, speed):
         """
@@ -314,7 +327,8 @@ class LEOSATEnv(AECEnv):
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
             self.SAT_Load[self.states[self.agents[i]]] += 1
-
+    
+    # load 정보 update 이상함?
     def _get_load_SAT(self) -> None:
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
         for gs_idx in range(self.GS_size):
@@ -446,6 +460,7 @@ class LEOSATEnv(AECEnv):
                 )
                 self.observations[f"groud_station_{i}"] = observation
 
+            tmp_overload_info = []
             # rewards
             for i in range(self.GS_size):
                 reward = 0
@@ -459,15 +474,18 @@ class LEOSATEnv(AECEnv):
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                 # HO occur
                 elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                    # HOF: Overload;
+                    if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
+                        tmp_overload_info.append((_actions[i], i))
+                        print(_actions[i],i,'추가함!')
+                        ### 밑에서 random access 이뤄짐
+                        ##  reward = -30
+                        ##  self.agent_status_log[i][self.timestep] = 3
+                        ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HOF: QoS 
-                    if SINR < self.threshold:
+                    elif SINR < self.threshold:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 2
-                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    # HOF: Overload
-                    elif np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                        reward = -30
-                        self.agent_status_log[i][self.timestep] = 3
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
@@ -551,6 +569,23 @@ class LEOSATEnv(AECEnv):
                         self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
                     print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
 
+            ## overload state 처리 -> random access
+            tmp_overload_info.sort(key= lambda x:x[0])
+            overloaded_info = [list(group) for key, group in groupby(tmp_overload_info, key=lambda x: x[0])]
+            for idx in range(len(overloaded_info)):
+                print(overloaded_info[idx],'overload info') ## 수정필요
+                indices_list = self._select_random_index(overloaded_info[idx]) # 0: 랜덤하게 선택된 인덱스 1: overloaded 상태가 되는 인덱스
+                for _, item in enumerate(indices_list[0]):
+                    # associated indices
+                    SINR = float(SINRs[item[1], np.where(self.service_indicator[item[1]] == 1)])
+                    self.rewards[self.agents[item[1]]] = self.visible_time[item[1]][item[0]] + self.SINR_weight*(SINR)
+                    self.agent_status_log[item[1]][self.timestep] = 5
+                    self.SINR_log[item[1]][self.timestep] = SINR
+                
+                for _, item in enumerate(indices_list[1]):
+                    self.rewards[self.agents[item[1]]] = -30
+                    self.agent_status_log[item[1]][self.timestep] = 3
+                    self.service_indicator[item[1]] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
 
             if self.render_mode == "human":
                 self.render()
