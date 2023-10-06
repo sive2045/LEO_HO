@@ -176,6 +176,7 @@ class LEOSATEnv(AECEnv):
         return SAT allocate indices list and overload indices list
         --> [selected_list, remaining_list]
         '''
+        print(f"받은 인덱스 :{GS_indices}")
         selected = random.sample(GS_indices, self.SAT_Load_MAX)
         selected_list = list(selected)
         remaining_list = [item for item in GS_indices if item not in selected]
@@ -422,8 +423,6 @@ class LEOSATEnv(AECEnv):
             # Update service indicator
             _service_indicator = np.copy(self.service_indicator)
             self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
-            for i in range(self.GS_size):
-                self.service_indicator[i][self.states[self.agents[i]]] = 1
     
             # Update SAT position
             self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
@@ -436,21 +435,20 @@ class LEOSATEnv(AECEnv):
             self._update_load_SAT()
             # Get load info
             self._get_load_SAT()
-            # Get visible time        
-            for i in range(self.GS_size):
-                for j in range(self.SAT_len*2):
-                    self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
             # Update SINR info
             if self.interference_mode:
                 SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
                 signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
                 for i in range(self.GS_size):
+                    self.service_indicator[i][self.states[self.agents[i]]] = 1
                     for j in range(self.SAT_len * self.SAT_plane):
+                        self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i]) # Get visible time 
                         if self.coverage_indicator[i][j]:
                             SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
                         else:
                             SINRs[i][j] = -1e2
-
+            
+            _actions = np.array(list(self.states.values())) ## load 정보에서 이용
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
@@ -459,31 +457,42 @@ class LEOSATEnv(AECEnv):
                     SINRs[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
-
-            tmp_overload_info = []
-            # rewards
-            for i in range(self.GS_size):
-                reward = 0
-                SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
-                _actions = np.array(list(self.states.values()))
-                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
+                
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
                     reward = -50
                     self.agent_status_log[i][self.timestep] = 1
+                    _actions[i] = -1 # overload 카운팅에서 제외 설정
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+
+            tmp_overload_info = []
+            #_actions = np.array(list(self.states.values()))
+            # rewards
+            for i in range(self.GS_size):
+                if _actions[i] == -1 : continue # non-coverage 건너뛰기
+                reward = 0
+                SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
+                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
+                # Overload;
+                if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
+                    tmp_overload_info.append((_actions[i], i))
+                    print(_actions[i],i,'추가함!')
+                    ### 밑에서 random access 이뤄짐
+                    ##  reward = -30
+                    ##  self.agent_status_log[i][self.timestep] = 3
+                    ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                 # HO occur
                 elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
                     # HOF: Overload;
-                    if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                        tmp_overload_info.append((_actions[i], i))
-                        print(_actions[i],i,'추가함!')
+                    #if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
+                    #    tmp_overload_info.append((_actions[i], i))
+                    #    print(_actions[i],i,'추가함!')
                         ### 밑에서 random access 이뤄짐
                         ##  reward = -30
                         ##  self.agent_status_log[i][self.timestep] = 3
                         ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HOF: QoS 
-                    elif SINR < self.threshold:
+                    if SINR < self.threshold:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
@@ -572,9 +581,10 @@ class LEOSATEnv(AECEnv):
             ## overload state 처리 -> random access
             tmp_overload_info.sort(key= lambda x:x[0])
             overloaded_info = [list(group) for key, group in groupby(tmp_overload_info, key=lambda x: x[0])]
+            if self.debugging: print(overloaded_info,'overload info') 
             for idx in range(len(overloaded_info)):
-                print(overloaded_info[idx],'overload info') ## 수정필요
                 indices_list = self._select_random_index(overloaded_info[idx]) # 0: 랜덤하게 선택된 인덱스 1: overloaded 상태가 되는 인덱스
+                if self.debugging: print(f"할당된 인덱스: {indices_list[0]}, 오버로드 처리된 인덱스: {indices_list[1]}")
                 for _, item in enumerate(indices_list[0]):
                     # associated indices
                     SINR = float(SINRs[item[1], np.where(self.service_indicator[item[1]] == 1)])
