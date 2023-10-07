@@ -170,16 +170,16 @@ class LEOSATEnv(AECEnv):
         
         return _GS
 
-    def _select_random_index(self, GS_indices) -> list:
+    def _select_random_index(self, recv_indices) -> list:
         '''
         if overloaded state occurs,
         return SAT allocate indices list and overload indices list
         --> [selected_list, remaining_list]
         '''
-        print(f"받은 인덱스 :{GS_indices}")
-        selected = random.sample(GS_indices, self.SAT_Load_MAX)
+        print(f"받은 인덱스 :{recv_indices}")
+        selected = random.sample(recv_indices, self.SAT_Load_MAX[recv_indices[0][0]])
         selected_list = list(selected)
-        remaining_list = [item for item in GS_indices if item not in selected]
+        remaining_list = [item for item in recv_indices if item not in selected]
         return [selected_list, remaining_list]
 
     def _SAT_coordinate(self, SAT, SAT_len, time, speed):
