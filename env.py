@@ -464,56 +464,12 @@ class LEOSATEnv(AECEnv):
                     self.agent_status_log[i][self.timestep] = 1
                     _actions[i] = -1 # overload 카운팅에서 제외 설정
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                    self.rewards[self.agents[i]] = reward
 
             tmp_overload_info = []
             #_actions = np.array(list(self.states.values()))
             # rewards
             for i in range(self.GS_size):
-                if _actions[i] == -1 : continue # non-coverage 건너뛰기
-                reward = 0
-                SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
-                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
-                # Overload;
-                if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                    tmp_overload_info.append((_actions[i], i))
-                    print(_actions[i],i,'추가함!')
-                    ### 밑에서 random access 이뤄짐
-                    ##  reward = -30
-                    ##  self.agent_status_log[i][self.timestep] = 3
-                    ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                # HO occur
-                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
-                    # HOF: Overload;
-                    #if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                    #    tmp_overload_info.append((_actions[i], i))
-                    #    print(_actions[i],i,'추가함!')
-                        ### 밑에서 random access 이뤄짐
-                        ##  reward = -30
-                        ##  self.agent_status_log[i][self.timestep] = 3
-                        ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    # HOF: QoS 
-                    if SINR < self.threshold:
-                        reward = -30
-                        self.agent_status_log[i][self.timestep] = 2
-                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    # HO cost
-                    else:
-                        reward = -15
-                        self.agent_status_log[i][self.timestep] = 4
-                # Ack
-                else:
-                    if self.interference_mode:                         
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
-                        self.agent_status_log[i][self.timestep] = 5
-                        self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
-                    else:
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
-                        self.agent_status_log[i][self.timestep] = 5
-                        self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
-                self.rewards[self.agents[i]] = reward
-
                 # Benchmark
                 if self.debugging: 
                     print(f"{self.timestep}-time step, {i}-th agent's load info: {self.load_info[i]}")
@@ -577,6 +533,52 @@ class LEOSATEnv(AECEnv):
                         self.SINR_status_log[i][self.timestep] = 5
                         self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
                     print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+                
+                if _actions[i] == -1 : continue # non-coverage 건너뛰기
+                reward = 0
+                SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
+                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
+                # Overload;
+                if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
+                    tmp_overload_info.append((_actions[i], i))
+                    print(_actions[i],i,'추가함!')
+                    ### 밑에서 random access 이뤄짐
+                    ##  reward = -30
+                    ##  self.agent_status_log[i][self.timestep] = 3
+                    ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                # HO occur
+                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                    # HOF: Overload;
+                    #if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
+                    #    tmp_overload_info.append((_actions[i], i))
+                    #    print(_actions[i],i,'추가함!')
+                        ### 밑에서 random access 이뤄짐
+                        ##  reward = -30
+                        ##  self.agent_status_log[i][self.timestep] = 3
+                        ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                    # HOF: QoS 
+                    if SINR < self.threshold:
+                        reward = -30
+                        self.agent_status_log[i][self.timestep] = 2
+                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                    # HO cost
+                    else:
+                        reward = -15
+                        self.agent_status_log[i][self.timestep] = 4
+                # Ack
+                else:
+                    if self.interference_mode:                         
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
+                        self.agent_status_log[i][self.timestep] = 5
+                        self.SINR_log[i][self.timestep] = SINR
+                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
+                    else:
+                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
+                        self.agent_status_log[i][self.timestep] = 5
+                        self.SINR_log[i][self.timestep] = SINR
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
+                self.rewards[self.agents[i]] = reward
+
 
             ## overload state 처리 -> random access
             tmp_overload_info.sort(key= lambda x:x[0])

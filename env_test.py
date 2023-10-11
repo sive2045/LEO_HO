@@ -37,15 +37,15 @@ if __name__ == "__main__":
             state_shape,
             action_shape,
             hidden_sizes=[256, 256, 256, 256],
-            device='cpu'
-        ).to('cpu')
-        optim = torch.optim.Adam(net.parameters(), lr=1e-5)
+            device='cuda'
+        ).to('cuda')
+        optim = torch.optim.Adam(net.parameters(), lr=0.001)
         agent = DQNPolicy(
             net,
             optim,
             0.9,
             10,
-            target_update_freq=100
+            target_update_freq=1000
         )
         agents.append(agent)
 
