@@ -111,7 +111,9 @@ class LEOSATEnv(AECEnv):
         self.debugging = debugging
         
         # Result vars
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        # Ack, Blocked, HOF
+        # --> non-coverage는 어떻게 뺄지 고민해야함.
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -131,19 +133,19 @@ class LEOSATEnv(AECEnv):
         3. SINR-based 
         """
         # MVT
-        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
         self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
         self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
         self.MVT_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         
         # MAC
-        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
         self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
         self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.MAC_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         # SINR-based
-        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
         self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
         self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.SINR_based_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
