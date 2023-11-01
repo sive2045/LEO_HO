@@ -113,7 +113,7 @@ class LEOSATEnv(AECEnv):
         # Result vars
         # Ack, Blocked, HOF
         # --> non-coverage는 어떻게 뺄지 고민해야함.
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -133,19 +133,19 @@ class LEOSATEnv(AECEnv):
         3. SINR-based 
         """
         # MVT
-        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
+        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
         self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
         self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
         self.MVT_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         
         # MAC
-        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
+        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
         self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
         self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.MAC_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         # SINR-based
-        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK, 6: Blocked-QoS, 7: Blocked-Overload;
+        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
         self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
         self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.SINR_based_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
@@ -302,23 +302,23 @@ class LEOSATEnv(AECEnv):
         comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] 
         # interference constellation
         # SAT_ifc = np.zeros(self.ifc_SAT_len) # dB 디버깅용, 연산 소모때문에 학습땐 지양.
-        SAT_ifc = 0
-        for i in range(self.ifc_SAT_len):
-            if self.ifc_service_indicator[GS_index,i]:
-                dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
-                #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
-                if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
-                    delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
-                else:
-                    delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
-                FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-                #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                #SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
-                SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
+        #SAT_ifc = 0
+        #for i in range(self.ifc_SAT_len):
+        #    if self.ifc_service_indicator[GS_index,i]:
+        #        dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
+        #        #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
+        #        if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
+        #            delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
+        #        else:
+        #            delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
+        #        FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
+        #        #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
+        #        #SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
+        #        SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
 
         # SINR calculate
         #SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
-        SINR = 10*np.log10(signal_power[SAT_service_idx] / (comm_ifc + SAT_ifc + noise))
+        SINR = 10*np.log10(signal_power[SAT_service_idx] / (comm_ifc +  noise))
         #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
         return SINR
 
@@ -543,7 +543,7 @@ class LEOSATEnv(AECEnv):
                 # Overload;
                 if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
                     tmp_overload_info.append((_actions[i], i))
-                    print(_actions[i],i,'추가함!')
+                    #print(_actions[i],i,'추가함!')
                     ### 밑에서 random access 이뤄짐
                     ##  reward = -30
                     ##  self.agent_status_log[i][self.timestep] = 3
@@ -569,7 +569,11 @@ class LEOSATEnv(AECEnv):
                         self.agent_status_log[i][self.timestep] = 4
                 # Ack
                 else:
-                    if self.interference_mode:                         
+                    if SINR < self.threshold:
+                        reward = -30
+                        self.agent_status_log[i][self.timestep] = 2
+                        self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                    elif self.interference_mode:                         
                         reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
                         self.agent_status_log[i][self.timestep] = 5
                         self.SINR_log[i][self.timestep] = SINR
