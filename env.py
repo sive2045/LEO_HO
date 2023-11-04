@@ -48,7 +48,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 30 # [dBi]
         self.shadow_fading = 0.5 # [dB]
         self.GS_Tx_power = 23e-3 # 23 dBm
-        self.threshold = -4 # [dB]
+        self.threshold = -2 # [dB]
 
         self.timestep = None
         self.terminal_time = 155 # s
@@ -513,6 +513,8 @@ class LEOSATEnv(AECEnv):
                         # HOF: SINR
                         elif SINRs[i][self.MAC_service_index[idx]] < self.threshold:
                             self.MAC_status_log[i][self.timestep] = 2
+                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MAC_service_index):
+                            self.SINR_status_log[i][self.timestep] = 3
                         else: self.MAC_status_log[i][self.timestep] = 4
                     else:
                         self.MAC_status_log[i][self.timestep] = 5
@@ -524,8 +526,11 @@ class LEOSATEnv(AECEnv):
                         # HOF: non-coverage area
                         if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
                             self.SINR_status_log[i][self.timestep] = 1
+                        # HOF: SINR
+                        elif SINRs[i][self.SINR_service_index[idx]] < self.threshold:
+                            self.SINR_status_log[i][self.timestep] = 2
                         # HOF: Overload
-                        if self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
+                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
                             self.SINR_status_log[i][self.timestep] = 3
                         # HO
                         else:
@@ -821,7 +826,7 @@ class LEOSATEnv(AECEnv):
         plt.ylabel('Average handover'); plt.legend(); plt.xlabel('time step'); plt.grid()
 
 
-        # Plot comprasion of HOF rate
+        # Plot comprasion of communication failure rate
         plt.figure(6)
         HOF_MADQN = np.zeros((self.terminal_time+1))
         HOF_MVT   = np.zeros((self.terminal_time+1))
@@ -843,10 +848,10 @@ class LEOSATEnv(AECEnv):
         HOF_MAC   /= self.GS_size
         HOF_SINR  /= self.GS_size
 
-        _HOF_MADQN = (HOF_MADQN[-1]) / (HO_MADQN[-1])
-        _HOF_MVT   = (HOF_MVT[-1]) / (HO_MVT[-1])
-        _HOF_MAC   = (HOF_MAC[-1]) / (HO_MAC[-1])
-        _HOF_SINR  = (HOF_SINR[-1]) / (HO_SINR[-1])
+        _HOF_MADQN = (HOF_MADQN[-1]) / self.terminal_time
+        _HOF_MVT   = (HOF_MVT[-1]) / self.terminal_time
+        _HOF_MAC   = (HOF_MAC[-1]) / self.terminal_time
+        _HOF_SINR  = (HOF_SINR[-1]) / self.terminal_time
         
         HOF_MADQN[:] = _HOF_MADQN
         HOF_MVT[:]   = _HOF_MVT  
@@ -865,7 +870,7 @@ class LEOSATEnv(AECEnv):
         plt.plot(time_step, HOF_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
 
         plt.xlim((1,155))
-        plt.ylabel('Average handover failure rate'); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
+        plt.ylabel("Average communication failure rate"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
 
         print(f"MADQN average HO: {HO_MADQN[-1]}")
         print(f"MVT average HO: {HO_MVT[-1]}")
