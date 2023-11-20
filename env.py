@@ -31,6 +31,7 @@ from itertools import groupby
 import random
 import numpy as np
 from gymnasium import spaces
+import scipy.special as sc
 
 from pettingzoo.utils import agent_selector
 from pettingzoo import AECEnv
@@ -45,10 +46,11 @@ class LEOSATEnv(AECEnv):
         self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
-        self.anttena_gain = 30 # [dBi]
         self.shadow_fading = 0.5 # [dB]
         self.GS_Tx_power = 23e-3 # 23 dBm
         self.threshold = -2 # [dB]
+
+        self.rate_threshold = 250_000 # 0.25 Mbps
 
         self.timestep = None
         self.terminal_time = 155 # s
@@ -66,12 +68,16 @@ class LEOSATEnv(AECEnv):
         self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 5) # the maximum available channels of SAT
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
-        self.SAT_BW = 10 # MHz BW budget of SAT
-        self.freq = 14 # GHz
-
-        self.SAT_Tx_power = 15 # dBw ---> 수정 필요
-        self.GNSS_noise = 1 # GNSS measurement noise, Gaussian white noise
         
+        self.SAT_BW = 2_000_000 # Hz BW budget of SAT
+        self.freq = 20 # GHz
+        self.SAT_Tx_power = 40 # W
+        self.GNSS_noise = 1 # 수정 예정
+        self.anttena_gain = 1_000
+        
+        self.visible_time_weight = 1
+        self.rate_weight = 10**(-4)
+
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
 
@@ -262,65 +268,45 @@ class LEOSATEnv(AECEnv):
         visible_time = 0 if visible_time >= 14 else visible_time
         return visible_time        
 
-
-    def _cal_signal_power(self, SAT, GS, freq):
-        """
-        cell-coverage 내부만 고려
-
-        return donwlink signal power
-
-        shadow faiding loss -> avg 1
-        """
-        GS_signal_power = np.zeros((len(GS), len(SAT)))
-        for i in range(len(GS)):
-            for j in range(len(SAT)):
+    def _cal_shadowed_rice_fading_gain(self):
+        self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
+        for i in range(self.GS_size):
+            for j in range(self.SAT_len * self.SAT_plane):
                 if self.coverage_indicator[i][j] == 1:
-                    dist = np.linalg.norm(GS[i,:] - SAT[j,:])
-                    #print(f"{self.timestep}시간, {i}유저와 {j}위성 간 거리 : {dist}") 
-                    if GS[i,0] > SAT[j,0]:
-                        delta_f = (1 + self.SAT_speed / 3e5) * freq
-                    else:
-                        delta_f = (1 - self.SAT_speed / 3e5) * freq
-                    FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-                    #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-                    #GS_signal_power[i, j] =  self.SAT_Tx_power - FSPL - self.shadow_fading + 30
-                    GS_signal_power[i, j] =  self.SAT_Tx_power * FSPL * self.shadow_fading * 40
-        if self.debugging: print(f"{self.timestep}-times Agents' signal power: {GS_signal_power}")
-        return GS_signal_power
+                    elevation_angle = 180/np.pi * np.arctan(self.SAT_height / (np.sqrt( (self.GS[i][0]-self.SAT_point[j][0])**2 + (self.GS[i][1]-self.SAT_point[j][1])**2 )))
+                    # paramters
+                    b = (-4.7943 * 10**(-8) * elevation_angle**(3) + 5.5784 * 10**(-6) * elevation_angle**(2) 
+                         -2.1344 * 10**(-4) * elevation_angle + 3.2710 * 10**(-2))
+                    # LoS componets
+                    omega = (
+                        1.4428 * 10**(-5) * elevation_angle**(3) -2.3798 * 10**(-3) * elevation_angle**(2)
+                        +1.2702 * 10**(-1) * elevation_angle -1.4864
+                    )
+                    # Nakagami-m fading
+                    m = (
+                        6.3739 * 10**(-5) * elevation_angle**(3) +5.8533 * 10**(-4) * elevation_angle**(2)
+                        -1.5973 * 10**(-1) * elevation_angle + 3.5156
+                    )
+                    x = np.linspace(0,4,1000)
+                    PDF = 1/(2*b) * (((2*b*m)/(2*b*m+omega))**(m)) * np.exp(-x/(2*b)) * sc.hyp1f1(m,1,omega*x/(2*b*(2*b*m+omega)))
+                    idx = np.random.randint(0,1000)
+                    self.channel_gain[i, j] = PDF[idx]
+        if self.debugging: print(f"{self.timestep}-times Agents' channel gain: {self.channel_gain}")
+        return self.channel_gain
 
-    def _cal_SINR(self, GS_index, signal_power, SAT_service_idx):
-        """
-        Conssidering communication and interference LEO SAT 
-        return downlink SINR
-        """
-        SINR = 0 # [dB]
-
-        # noise
-        noise = 1e-8
-
-        # communication constellation interfernce
-        comm_ifc = np.sum(signal_power) - signal_power[SAT_service_idx] 
-        # interference constellation
-        # SAT_ifc = np.zeros(self.ifc_SAT_len) # dB 디버깅용, 연산 소모때문에 학습땐 지양.
-        #SAT_ifc = 0
-        #for i in range(self.ifc_SAT_len):
-        #    if self.ifc_service_indicator[GS_index,i]:
-        #        dist = np.linalg.norm(self.GS[GS_index,:] - self.ifc_SAT_point[i,:])
-        #        #print(f"{self.timestep}시간, {GS_index}유저와 {i}간섭위성 간 거리 : {dist}")
-        #        if self.GS[GS_index,0] > self.ifc_SAT_point[i,0]:
-        #            delta_f = (1 + self.ifc_SAT_speed / 3e5) * self.ifc_freq
-        #        else:
-        #            delta_f = (1 - self.ifc_SAT_speed / 3e5) * self.ifc_freq
-        #        FSPL = ( np.pi * 4 * dist * delta_f) ** -2 # Power, free space path loss;
-        #        #FSPL = 20 * np.log10(dist) + 20 * np.log10(delta_f) + 92.45 # [dB], free space path loss
-        #        #SAT_ifc += self.ifc_Tx_power - (FSPL + self.shadow_fading) + 30 # 디버깅 시 SAT_ifc[i]로 변환! # 1000 -> Antenna gain
-        #        SAT_ifc += self.ifc_Tx_power * FSPL * self.shadow_fading * 30
-
-        # SINR calculate
-        #SINR = signal_power[GS_index] - comm_ifc - SAT_ifc - noise_power # dB
-        SINR = 10*np.log10(signal_power[SAT_service_idx] / (comm_ifc +  noise))
-        #if self.debugging: print(f"{self.timestep}-times {GS_index}-Agent, comm ifc: {comm_ifc}\nSAT ifc: {SAT_ifc}")
-        return SINR
+    def _cal_data_rate(self, actions):
+        self.data_rate = np.zeros((self.GS_size))
+        for i in range(self.GS_size):
+            if self.coverage_indicator[i][actions[i]]==0: pass
+            else:
+                interfernce = 0
+                for j in range(self.SAT_len * self.SAT_plane):
+                    if actions[i] == j: pass
+                    elif self.coverage_indicator[i][j] == 1 and self.SAT_Load[j] > 0:
+                        interfernce += self.channel_gain[i][j]
+                
+                self.data_rate[i] = self.SAT_BW/self.SAT_Load[actions[i]] * np.log2(1 + self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]/(interfernce + 10**(-12)))
+        if self.debugging: print(f"{self.timestep}-times Agents' data rate: {self.data_rate}")
 
     def _update_load_SAT(self) -> None:
         '''
@@ -371,15 +357,7 @@ class LEOSATEnv(AECEnv):
                 self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
         # Update SINR info, --> cell 반경 밖인 경우 SINR -inf
         if self.interference_mode:
-            SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-            #SINRs_avg = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # SINRs - avg 값
-            signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
-            for i in range(self.GS_size):
-                for j in range(self.SAT_len * self.SAT_plane):
-                    if self.coverage_indicator[i][j]:
-                        SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
-                    else:
-                        SINRs[i][j] = -1e2
+            self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
 
         # observations
         self.observations = {}
@@ -388,12 +366,12 @@ class LEOSATEnv(AECEnv):
                 self.coverage_indicator[i],
                 self.load_info[i],
                 self.visible_time[i],
-                SINRs[i]
+                self.channel_gain[i]
             )
             self.observations[self.agents[i]] = observation
         
         # logs
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK 
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK 
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -425,7 +403,8 @@ class LEOSATEnv(AECEnv):
             # Update service indicator
             _service_indicator = np.copy(self.service_indicator)
             self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
-    
+            for i in range(self.GS_size):
+                self.service_indicator[i][self.states[self.agents[i]]] = 1
             # Update SAT position
             self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
             # Update GS position
@@ -437,26 +416,19 @@ class LEOSATEnv(AECEnv):
             self._update_load_SAT()
             # Get load info
             self._get_load_SAT()
-            # Update SINR info
-            if self.interference_mode:
-                SINRs = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # <----------------- SINRs 클래스 init 여부 고민!
-                signal_power = self._cal_signal_power(self.SAT_point, self.GS, self.freq)
-                for i in range(self.GS_size):
-                    self.service_indicator[i][self.states[self.agents[i]]] = 1
-                    for j in range(self.SAT_len * self.SAT_plane):
-                        self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i]) # Get visible time 
-                        if self.coverage_indicator[i][j]:
-                            SINRs[i][j] = self._cal_SINR(i, signal_power[i,:], j)
-                        else:
-                            SINRs[i][j] = -1e2
+            # Update channel gain
+            self._cal_shadowed_rice_fading_gain()
             
-            _actions = np.array(list(self.states.values())) ## load 정보에서 이용
+            _actions = np.array(list(self.states.values()))
+            # Update Data rate
+            self._cal_data_rate(_actions)
+
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
                     self.load_info[i],
                     self.visible_time[i],
-                    SINRs[i]
+                    self.channel_gain[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
                 
@@ -468,147 +440,102 @@ class LEOSATEnv(AECEnv):
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     self.rewards[self.agents[i]] = reward
 
-            tmp_overload_info = []
-            #_actions = np.array(list(self.states.values()))
             # rewards
             for i in range(self.GS_size):
                 # Benchmark
-                if self.debugging: 
-                    print(f"{self.timestep}-time step, {i}-th agent's load info: {self.load_info[i]}")
-                    print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
-                    print(f"{self.timestep}-time step, {i}-th agent info: MAC: {self.MAC_service_index[i]}")
-                    print(f"{self.timestep}-time step, {i}-th agent info: SINR: {self.SINR_service_index[i]}")
-                    # MVT
-                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or SINRs[i][self.MVT_service_index[i]] < self.threshold:
-                        idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
-                        # HOF: non-coverage area
-                        # if self.coverage_indicator[i][self.MVT_service_index[idx]] == 0:
-                        #     self.MVT_status_log[i][self.timestep] = 1
-                        # HOF: SINR
-                        if SINRs[i][self.MVT_service_index[idx]] < self.threshold:
-                            self.MVT_status_log[i][self.timestep] = 2
-                        # HOF: Overload
-                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MVT_service_index):
-                            self.MVT_status_log[i][self.timestep] = 3
-                        # HO
-                        else:
-                            self.MVT_service_index[i] = idx
-                            self.MVT_status_log[i][self.timestep] = 4
-                    else:
-                        self.MVT_status_log[i][self.timestep] = 5
-                        self.MVT_SINR_log[i][self.timestep] = SINRs[i][self.MVT_service_index[i]]
+                # if self.debugging: 
+                #     print(f"{self.timestep}-time step, {i}-th agent's load info: {self.load_info[i]}")
+                #     print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
+                #     print(f"{self.timestep}-time step, {i}-th agent info: MAC: {self.MAC_service_index[i]}")
+                #     print(f"{self.timestep}-time step, {i}-th agent info: SINR: {self.SINR_service_index[i]}")
+                #     # MVT
+                #     if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or SINRs[i][self.MVT_service_index[i]] < self.threshold:
+                #         idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
+                #         # HOF: non-coverage area
+                #         # if self.coverage_indicator[i][self.MVT_service_index[idx]] == 0:
+                #         #     self.MVT_status_log[i][self.timestep] = 1
+                #         # HOF: SINR
+                #         if SINRs[i][self.MVT_service_index[idx]] < self.threshold:
+                #             self.MVT_status_log[i][self.timestep] = 2
+                #         # HOF: Overload
+                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MVT_service_index):
+                #             self.MVT_status_log[i][self.timestep] = 3
+                #         # HO
+                #         else:
+                #             self.MVT_service_index[i] = idx
+                #             self.MVT_status_log[i][self.timestep] = 4
+                #     else:
+                #         self.MVT_status_log[i][self.timestep] = 5
+                #         self.MVT_SINR_log[i][self.timestep] = SINRs[i][self.MVT_service_index[i]]
                     
-                    # MAC
-                    if self.coverage_indicator[i][self.MAC_service_index[i]] == 0 or SINRs[i][self.MAC_service_index[i]] < self.threshold:
-                        _load_data = np.zeros(self.SAT_len*self.SAT_plane)
-                        for j in range(self.SAT_len*self.SAT_plane):
-                            if self.coverage_indicator[i][j] == 0: pass
-                            else:
-                                _load_data[j] = self.SAT_Load_MAX[j] - np.count_nonzero(self.MAC_service_index == j)
-                        idx = np.where(_load_data == np.max(_load_data))[0][0]
-                        self.MAC_service_index[i] = idx
-                        # HOF: non-coverage area
-                        if self.coverage_indicator[i][self.MAC_service_index[idx]] == 0:
-                            self.MAC_status_log[i][self.timestep] = 1
-                        # HOF: SINR
-                        elif SINRs[i][self.MAC_service_index[idx]] < self.threshold:
-                            self.MAC_status_log[i][self.timestep] = 2
-                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MAC_service_index):
-                            self.SINR_status_log[i][self.timestep] = 3
-                        else: self.MAC_status_log[i][self.timestep] = 4
-                    else:
-                        self.MAC_status_log[i][self.timestep] = 5
-                        self.MAC_SINR_log[i][self.timestep] = SINRs[i][self.MAC_service_index[i]]
+                #     # MAC
+                #     if self.coverage_indicator[i][self.MAC_service_index[i]] == 0 or SINRs[i][self.MAC_service_index[i]] < self.threshold:
+                #         _load_data = np.zeros(self.SAT_len*self.SAT_plane)
+                #         for j in range(self.SAT_len*self.SAT_plane):
+                #             if self.coverage_indicator[i][j] == 0: pass
+                #             else:
+                #                 _load_data[j] = self.SAT_Load_MAX[j] - np.count_nonzero(self.MAC_service_index == j)
+                #         idx = np.where(_load_data == np.max(_load_data))[0][0]
+                #         self.MAC_service_index[i] = idx
+                #         # HOF: non-coverage area
+                #         if self.coverage_indicator[i][self.MAC_service_index[idx]] == 0:
+                #             self.MAC_status_log[i][self.timestep] = 1
+                #         # HOF: SINR
+                #         elif SINRs[i][self.MAC_service_index[idx]] < self.threshold:
+                #             self.MAC_status_log[i][self.timestep] = 2
+                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MAC_service_index):
+                #             self.SINR_status_log[i][self.timestep] = 3
+                #         else: self.MAC_status_log[i][self.timestep] = 4
+                #     else:
+                #         self.MAC_status_log[i][self.timestep] = 5
+                #         self.MAC_SINR_log[i][self.timestep] = SINRs[i][self.MAC_service_index[i]]
 
-                    # SINR-based
-                    if self.coverage_indicator[i][self.SINR_service_index[i]] == 0 or SINRs[i][self.SINR_service_index[i]] < self.threshold:
-                        idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
-                        # HOF: non-coverage area
-                        if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
-                            self.SINR_status_log[i][self.timestep] = 1
-                        # HOF: SINR
-                        elif SINRs[i][self.SINR_service_index[idx]] < self.threshold:
-                            self.SINR_status_log[i][self.timestep] = 2
-                        # HOF: Overload
-                        elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
-                            self.SINR_status_log[i][self.timestep] = 3
-                        # HO
-                        else:
-                            self.SINR_service_index[i] = idx
-                            self.SINR_status_log[i][self.timestep] = 4
-                    else:
-                        self.SINR_status_log[i][self.timestep] = 5
-                        self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
-                    print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+                #     # SINR-based
+                #     if self.coverage_indicator[i][self.SINR_service_index[i]] == 0 or SINRs[i][self.SINR_service_index[i]] < self.threshold:
+                #         idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
+                #         # HOF: non-coverage area
+                #         if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
+                #             self.SINR_status_log[i][self.timestep] = 1
+                #         # HOF: SINR
+                #         elif SINRs[i][self.SINR_service_index[idx]] < self.threshold:
+                #             self.SINR_status_log[i][self.timestep] = 2
+                #         # HOF: Overload
+                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
+                #             self.SINR_status_log[i][self.timestep] = 3
+                #         # HO
+                #         else:
+                #             self.SINR_service_index[i] = idx
+                #             self.SINR_status_log[i][self.timestep] = 4
+                #     else:
+                #         self.SINR_status_log[i][self.timestep] = 5
+                #         self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
+                #     print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
                 
                 if _actions[i] == -1 : continue # non-coverage 건너뛰기
                 reward = 0
-                SINR = float(SINRs[i, np.where(self.service_indicator[i] == 1)])
                 self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
-                # Overload;
-                if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                    tmp_overload_info.append((_actions[i], i))
-                    #print(_actions[i],i,'추가함!')
-                    ### 밑에서 random access 이뤄짐
-                    ##  reward = -30
-                    ##  self.agent_status_log[i][self.timestep] = 3
-                    ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                 # HO occur
-                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
-                    # HOF: Overload;
-                    #if np.count_nonzero(_actions == _actions[i]) > self.SAT_Load_MAX[_actions[i]]:
-                    #    tmp_overload_info.append((_actions[i], i))
-                    #    print(_actions[i],i,'추가함!')
-                        ### 밑에서 random access 이뤄짐
-                        ##  reward = -30
-                        ##  self.agent_status_log[i][self.timestep] = 3
-                        ##  self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    # HOF: QoS 
-                    if SINR < self.threshold:
+                if _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                    # HOF: data rate 
+                    if self.data_rate[i] < self.rate_threshold:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
                         reward = -15
-                        self.agent_status_log[i][self.timestep] = 4
+                        self.agent_status_log[i][self.timestep] = 3
                 # Ack
                 else:
-                    if SINR < self.threshold:
+                    if self.data_rate[i] < self.rate_threshold:
                         reward = -30
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    elif self.interference_mode:                         
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i])) + self.SINR_weight*(SINR) #self.SINR_weight * 10 ** (0.1*(SINR))
-                        self.agent_status_log[i][self.timestep] = 5
-                        self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status with SINR mode, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}, SINR reward: {self.SINR_weight*(SINR)}")
                     else:
-                        reward = self.visible_time[i][_actions[i]] + self.load_weight * (self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))
-                        self.agent_status_log[i][self.timestep] = 5
-                        self.SINR_log[i][self.timestep] = SINR
-                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, Remaining load: {(self.SAT_Load_MAX[_actions[i]] - np.count_nonzero(_actions == _actions[i]))}")
+                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + self.rate_weight * self.data_rate[i]
+                        self.agent_status_log[i][self.timestep] = 4
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i]}")
                 self.rewards[self.agents[i]] = reward
-
-
-            ## overload state 처리 -> random access
-            tmp_overload_info.sort(key= lambda x:x[0])
-            overloaded_info = [list(group) for key, group in groupby(tmp_overload_info, key=lambda x: x[0])]
-            if self.debugging: print(overloaded_info,'overload info') 
-            for idx in range(len(overloaded_info)):
-                indices_list = self._select_random_index(overloaded_info[idx]) # 0: 랜덤하게 선택된 인덱스 1: overloaded 상태가 되는 인덱스
-                if self.debugging: print(f"할당된 인덱스: {indices_list[0]}, 오버로드 처리된 인덱스: {indices_list[1]}")
-                for _, item in enumerate(indices_list[0]):
-                    # associated indices
-                    SINR = float(SINRs[item[1], np.where(self.service_indicator[item[1]] == 1)])
-                    self.rewards[self.agents[item[1]]] = self.visible_time[item[1]][item[0]] + self.SINR_weight*(SINR)
-                    self.agent_status_log[item[1]][self.timestep] = 5
-                    self.SINR_log[item[1]][self.timestep] = SINR
-                
-                for _, item in enumerate(indices_list[1]):
-                    self.rewards[self.agents[item[1]]] = -30
-                    self.agent_status_log[item[1]][self.timestep] = 3
-                    self.service_indicator[item[1]] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
 
             if self.render_mode == "human":
                 self.render()
