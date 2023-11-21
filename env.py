@@ -65,7 +65,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_height = 500 # km, SAT height
         self.SAT_point[:,2] = self.SAT_height # km, SAT height 
         self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
-        self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 5) # the maximum available channels of SAT
+        self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 50) # the maximum available channels of SAT
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
         
@@ -296,16 +296,19 @@ class LEOSATEnv(AECEnv):
 
     def _cal_data_rate(self, actions):
         self.data_rate = np.zeros((self.GS_size))
+        print(f"{self.timestep}-th Data rate actions: {actions}")
         for i in range(self.GS_size):
             if self.coverage_indicator[i][actions[i]]==0: pass
             else:
-                interfernce = 0
+                interfernce = 1
                 for j in range(self.SAT_len * self.SAT_plane):
                     if actions[i] == j: pass
                     elif self.coverage_indicator[i][j] == 1 and self.SAT_Load[j] > 0:
-                        interfernce += self.channel_gain[i][j]
+                        interfernce += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
                 
-                self.data_rate[i] = self.SAT_BW/self.SAT_Load[actions[i]] * np.log2(1 + self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]/(interfernce + 10**(-12)))
+                self.data_rate[i] = self.SAT_BW/self.SAT_Load[actions[i]] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][actions[i]] / (interfernce + 10**(-12))))
+                print(f"{self.timestep}-th, {i}-agent service channel gain {self.channel_gain[i][actions[i]]}")
+                print(f"{self.timestep}-th, {i}-agent Data rate {self.data_rate[i]}")
         if self.debugging: print(f"{self.timestep}-times Agents' data rate: {self.data_rate}")
 
     def _update_load_SAT(self) -> None:
@@ -420,6 +423,7 @@ class LEOSATEnv(AECEnv):
             self._cal_shadowed_rice_fading_gain()
             
             _actions = np.array(list(self.states.values()))
+            print(f"{self.timestep}-step actions: {_actions}")
             # Update Data rate
             self._cal_data_rate(_actions)
 
