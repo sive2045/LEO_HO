@@ -589,13 +589,6 @@ class LEOSATEnv(AECEnv):
                     (self.GS[i,1], self.SAT_point[self.states[self.agents[i]],1]),
                     "--k", linewidth=1
                     )
-        
-        if self.interference_mode:
-            # Plot Interference SATs' point
-            axes.plot(self.ifc_SAT_point[:,0], self.ifc_SAT_point[:,1], 's')
-            # Plot Interference SAT's coverage
-            for i in range(self.ifc_SAT_len):
-                axes.plot(self.ifc_SAT_coverage[i,0,:], self.ifc_SAT_coverage[i,1,:], color='#EB455F', linestyle=':')
 
         axes.set_aspect(1)
         axes.axis([-50, 200, -50, 150])
