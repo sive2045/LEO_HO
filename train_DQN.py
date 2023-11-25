@@ -55,7 +55,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--test-num', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0.0)
-    parser.add_argument('--max-reward', type=float, default=20*155)
+    parser.add_argument('--max-reward', type=float, default=2000*155)
     parser.add_argument(
         '--watch',
         default=False,

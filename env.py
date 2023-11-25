@@ -76,7 +76,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 1_000
         
         self.visible_time_weight = 1
-        self.rate_weight = 10**(-4)
+        self.rate_weight = 10**(-5)
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
@@ -119,7 +119,7 @@ class LEOSATEnv(AECEnv):
         # Result vars
         # Ack, Blocked, HOF
         # --> non-coverage는 어떻게 뺄지 고민해야함.
-        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
+        self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
         self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
@@ -139,19 +139,19 @@ class LEOSATEnv(AECEnv):
         3. SINR-based 
         """
         # MVT
-        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
+        self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
         self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
         self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
         self.MVT_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
         
         # MAC
-        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
+        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
         self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
         self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.MAC_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         # SINR-based
-        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HOF-Overload, 4: HO, 5: ACK
+        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
         self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
         self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
         self.SINR_based_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
@@ -296,7 +296,7 @@ class LEOSATEnv(AECEnv):
 
     def _cal_data_rate(self, actions):
         self.data_rate = np.zeros((self.GS_size))
-        print(f"{self.timestep}-th Data rate actions: {actions}")
+        #print(f"{self.timestep}-th Data rate actions: {actions}")
         for i in range(self.GS_size):
             if self.coverage_indicator[i][actions[i]]==0: pass
             else:
@@ -307,8 +307,8 @@ class LEOSATEnv(AECEnv):
                         interfernce += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
                 
                 self.data_rate[i] = self.SAT_BW/self.SAT_Load[actions[i]] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][actions[i]] / (interfernce + 10**(-12))))
-                print(f"{self.timestep}-th, {i}-agent service channel gain {self.channel_gain[i][actions[i]]}")
-                print(f"{self.timestep}-th, {i}-agent Data rate {self.data_rate[i]}")
+                #print(f"{self.timestep}-th, {i}-agent service channel gain {self.channel_gain[i][actions[i]]}")
+                #print(f"{self.timestep}-th, {i}-agent Data rate {self.data_rate[i]}")
         if self.debugging: print(f"{self.timestep}-times Agents' data rate: {self.data_rate}")
 
     def _update_load_SAT(self) -> None:
@@ -423,7 +423,7 @@ class LEOSATEnv(AECEnv):
             self._cal_shadowed_rice_fading_gain()
             
             _actions = np.array(list(self.states.values()))
-            print(f"{self.timestep}-step actions: {_actions}")
+            #print(f"{self.timestep}-step actions: {_actions}")
             # Update Data rate
             self._cal_data_rate(_actions)
 
@@ -640,14 +640,12 @@ class LEOSATEnv(AECEnv):
             _status[i][1] = np.count_nonzero(self.agent_status_log[i] == 2)
             _status[i][2] = np.count_nonzero(self.agent_status_log[i] == 3)
             _status[i][3] = np.count_nonzero(self.agent_status_log[i] == 4)
-            _status[i][4] = np.count_nonzero(self.agent_status_log[i] == 5)
 
         bar_width = 0.1
         status_1 = plt.bar(agents, _status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, _status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='HOF-Overload')
-        status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='HO')
-        status_5 = plt.bar(agents + 4*bar_width, _status[:,4], bar_width, label='ACK')
+        status_3 = plt.bar(agents + 2*bar_width, _status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, _status[:,3], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("MADL-based")
 
@@ -659,14 +657,12 @@ class LEOSATEnv(AECEnv):
             MVT_status[i][1] = np.count_nonzero(self.MVT_status_log[i] == 2)
             MVT_status[i][2] = np.count_nonzero(self.MVT_status_log[i] == 3)
             MVT_status[i][3] = np.count_nonzero(self.MVT_status_log[i] == 4)
-            MVT_status[i][4] = np.count_nonzero(self.MVT_status_log[i] == 5)
 
         bar_width = 0.1
         status_1 = plt.bar(agents, MVT_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, MVT_status[:,2], bar_width, label='HOF-Overload')
-        status_4 = plt.bar(agents + 3*bar_width, MVT_status[:,3], bar_width, label='HO')
-        status_5 = plt.bar(agents + 4*bar_width, MVT_status[:,4], bar_width, label='ACK')
+        status_3 = plt.bar(agents + 2*bar_width, MVT_status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, MVT_status[:,3], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("MVT")
 
@@ -678,14 +674,12 @@ class LEOSATEnv(AECEnv):
             MAC_status[i][1] = np.count_nonzero(self.MAC_status_log[i] == 2)
             MAC_status[i][2] = np.count_nonzero(self.MAC_status_log[i] == 3)
             MAC_status[i][3] = np.count_nonzero(self.MAC_status_log[i] == 4)
-            MAC_status[i][4] = np.count_nonzero(self.MAC_status_log[i] == 5)
 
         bar_width = 0.1
         status_1 = plt.bar(agents, MAC_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, MAC_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,2], bar_width, label='HOF-Overload')
-        status_4 = plt.bar(agents + 3*bar_width, MAC_status[:,3], bar_width, label='HO')
-        status_5 = plt.bar(agents + 4*bar_width, MAC_status[:,4], bar_width, label='ACK')
+        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, MAC_status[:,3], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
 
@@ -696,28 +690,26 @@ class LEOSATEnv(AECEnv):
             SINR_status[i][0] = np.count_nonzero(self.SINR_status_log[i] == 1)
             SINR_status[i][1] = np.count_nonzero(self.SINR_status_log[i] == 2)
             SINR_status[i][2] = np.count_nonzero(self.SINR_status_log[i] == 3)
-            SINR_status[i][3] = np.count_nonzero(self.SINR_status_log[i] == 4)
-            SINR_status[i][4] = np.count_nonzero(self.SINR_status_log[i] == 5)
+            SINR_status[i][3] = np.count_nonzero(self.SINR_status_log[i] == 4)            
 
         bar_width = 0.1
         status_1 = plt.bar(agents, SINR_status[:,0], bar_width, label='HOF-non_service')
         status_2 = plt.bar(agents + bar_width, SINR_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, SINR_status[:,2], bar_width, label='HOF-Overload')
-        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='HO')
-        status_5 = plt.bar(agents + 4*bar_width, SINR_status[:,4], bar_width, label='ACK')
+        status_3 = plt.bar(agents + 2*bar_width, SINR_status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='ACK')        
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("SINR-based")
 
         # ACK variance
-        print(f"ACK var --> MADQN: {np.var(_status[:,4])}, MVT: {np.var(MVT_status[:,4])}, MAC: {np.var(MAC_status[:,4])}, SINR: {SINR_status[:,4]}")
+        print(f"ACK var --> MADQN: {np.var(_status[:,3])}, MVT: {np.var(MVT_status[:,3])}, MAC: {np.var(MAC_status[:,3])}, SINR: {SINR_status[:,3]}")
         
         # Plot comparsion of Ack HO strategies
         plt.figure(7)
         bar_width = 0.1
-        status_1 = plt.bar(agents, _status[:,4], bar_width, label='MADQN')
-        status_2 = plt.bar(agents + bar_width, MVT_status[:,4], bar_width, label='MVT')
-        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,4], bar_width, label='MAC')
-        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,4], bar_width, label='MAX-SINR')
+        status_1 = plt.bar(agents, _status[:,3], bar_width, label='MADQN')
+        status_2 = plt.bar(agents + bar_width, MVT_status[:,3], bar_width, label='MVT')
+        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,3], bar_width, label='MAC')
+        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='MAX-SINR')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
 
@@ -729,13 +721,13 @@ class LEOSATEnv(AECEnv):
         HO_SINR  = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
-                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3 or self.agent_status_log[agent][t] == 4:
+                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3:
                     HO_MADQN[t:] += 1
-                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3 or self.MVT_status_log[agent][t] == 4:
+                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3:
                     HO_MVT[t:] += 1
-                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3 or self.MAC_status_log[agent][t] == 4:
+                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3:
                     HO_MAC[t:] += 1
-                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3 or self.SINR_status_log[agent][t] == 4:
+                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3:
                     HO_SINR[t:] += 1
         
         HO_MADQN[:] /= self.GS_size
@@ -765,13 +757,13 @@ class LEOSATEnv(AECEnv):
         HOF_SINR  = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
-                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3:
+                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2:
                     HOF_MADQN[t:] += 1
-                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3:
+                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2:
                     HOF_MVT[t:] += 1
-                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3:
+                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2:
                     HOF_MAC[t:] += 1
-                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3:
+                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2:
                     HOF_SINR[t:] += 1
 
         HOF_MADQN /= self.GS_size
@@ -813,23 +805,19 @@ class LEOSATEnv(AECEnv):
         print(f"MAC average HOF rate: {HOF_MAC[-1]}")
         print(f"SINR average HOF rate: {HOF_SINR[-1]}")
 
-        cnt_HOF_MADQN = np.sum(_status[:,2]) + np.sum(_status[:,3])
-        cnt_HOF_MVT   = np.sum(MVT_status[:,2]) + np.sum(MVT_status[:,3])
-        cnt_HOF_MAC   = np.sum(MAC_status[:,2]) + np.sum(MAC_status[:,3])
-        cnt_HOF_SINR  = np.sum(SINR_status[:,2]) + np.sum(SINR_status[:,3])
+        cnt_HOF_MADQN = np.sum(_status[:,2])
+        cnt_HOF_MVT   = np.sum(MVT_status[:,2])
+        cnt_HOF_MAC   = np.sum(MAC_status[:,2])
+        cnt_HOF_SINR  = np.sum(SINR_status[:,2])
 
         print(f"MADQN 스킴 핸드오버실패 총 횟수: {cnt_HOF_MADQN},\
-              QoS: 횟수-{np.sum(_status[:,2])}, 비율-{(np.sum(_status[:,2]))/cnt_HOF_MADQN}\
-              Load: 횟수-{np.sum(_status[:,3])}, 비율-{(np.sum(_status[:,3]))/cnt_HOF_MADQN}")
+              QoS: 횟수-{np.sum(_status[:,2])}, 비율-{(np.sum(_status[:,2]))/cnt_HOF_MADQN}")
         print(f"MVT 스킴 핸드오버실패 총 횟수: {cnt_HOF_MVT}, \
-              QoS: 횟수-{np.sum(MVT_status[:,2])}, 비율-{(np.sum(MVT_status[:,2]))/cnt_HOF_MVT}\
-              Load: 횟수-{np.sum(MVT_status[:,3])}, 비율-{(np.sum(MVT_status[:,3]))/cnt_HOF_MVT}")
+              QoS: 횟수-{np.sum(MVT_status[:,2])}, 비율-{(np.sum(MVT_status[:,2]))/cnt_HOF_MVT}")
         print(f"MAC 스킴 핸드오버실패 총 횟수: {cnt_HOF_MAC}, \
-              QoS: 횟수-{np.sum(MAC_status[:,2])}, 비율-{(np.sum(MAC_status[:,2]))/cnt_HOF_MAC}\
-              Load: 횟수-{np.sum(MAC_status[:,3])}, 비율-{(np.sum(MAC_status[:,3]))/cnt_HOF_MAC}")
+              QoS: 횟수-{np.sum(MAC_status[:,2])}, 비율-{(np.sum(MAC_status[:,2]))/cnt_HOF_MAC}")
         print(f"MAX-SINR 스킴 핸드오버실패 총 횟수: {cnt_HOF_SINR},  \
-              QoS: 횟수-{np.sum(SINR_status[:,2])}, 비율-{(np.sum(SINR_status[:,2]))/cnt_HOF_SINR}\
-              Load: 횟수-{np.sum(SINR_status[:,3])}, 비율-{(np.sum(SINR_status[:,3]))/cnt_HOF_SINR}")
+              QoS: 횟수-{np.sum(SINR_status[:,2])}, 비율-{(np.sum(SINR_status[:,2]))/cnt_HOF_SINR}")
 
         plt.show()
 
