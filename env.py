@@ -79,7 +79,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 1_000
         
         self.visible_time_weight = 1
-        self.rate_weight = 10**(-5)
+        self.rate_weight = 10**(-8)
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
