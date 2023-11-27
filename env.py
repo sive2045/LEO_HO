@@ -50,10 +50,13 @@ class LEOSATEnv(AECEnv):
         self.GS_Tx_power = 23e-3 # 23 dBm
         self.threshold = -2 # [dB]
 
-        self.rate_threshold = 250_000 # 0.25 Mbps
-
         self.timestep = None
         self.terminal_time = 155 # s
+        
+        self.rate_threshold = 100_000_000 # 100 Mbps
+        self.data_rate = np.zeros((self.GS_size))
+        self.rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
+
         #|------SAT(serviced) args------------------------------------------------------------------------------------------------------------------|
         self.SAT_len = 22
         self.SAT_plane = 2 # of plane
@@ -69,7 +72,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
         
-        self.SAT_BW = 2_000_000 # Hz BW budget of SAT
+        self.SAT_BW = 200_000_000 # Hz BW budget of SAT
         self.freq = 20 # GHz
         self.SAT_Tx_power = 40 # W
         self.GNSS_noise = 1 # 수정 예정
@@ -142,19 +145,25 @@ class LEOSATEnv(AECEnv):
         self.MVT_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
         self.MVT_service_index = np.zeros((self.GS_size)) # SAT index
         self.MVT_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, (self.SAT_len*self.SAT_plane)) # init index
-        self.MVT_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.MVT_data_rate_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.MVT_SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 50) # the maximum available channels of SAT
+        self.MVT_SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
         
-        # MAC
-        self.MAC_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
-        self.MAC_service_index = np.zeros((self.GS_size)) # SAT index
-        self.MAC_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
-        self.MAC_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
+        # random
+        self.random_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
+        self.random_service_index = np.zeros((self.GS_size)) # SAT index
+        self.random_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
+        self.random_data_rate_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.random_SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 50) # the maximum available channels of SAT
+        self.random_SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
 
-        # SINR-based
-        self.SINR_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
-        self.SINR_service_index = np.zeros((self.GS_size)) # SAT index
-        self.SINR_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
-        self.SINR_based_SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
+        # channel-gain-based
+        self.channel_based_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK
+        self.channel_based_service_index = np.zeros((self.GS_size)) # SAT index
+        self.channel_based_service_index = np.random.randint(0, self.SAT_len*self.SAT_plane, self.SAT_len*self.SAT_plane) # init index
+        self.channel_based_data_rate_log = np.zeros((self.GS_size, self.terminal_time+1))
+        self.channel_gaind_based_SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 50) # the maximum available channels of SAT
+        self.channel_gaind_based_SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
 
     def _GS_random_walk(self, GS, speed):
         """
@@ -294,9 +303,9 @@ class LEOSATEnv(AECEnv):
         if self.debugging: print(f"{self.timestep}-times Agents' channel gain: {self.channel_gain}")
         return self.channel_gain
 
-    def _cal_data_rate(self, actions):
-        self.data_rate = np.zeros((self.GS_size))
-        #print(f"{self.timestep}-th Data rate actions: {actions}")
+    def _cal_data_rate(self, actions, SAT_load):
+        data_rate = np.zeros((self.GS_size))
+        rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
         for i in range(self.GS_size):
             if self.coverage_indicator[i][actions[i]]==0: pass
             else:
@@ -306,10 +315,10 @@ class LEOSATEnv(AECEnv):
                     elif self.coverage_indicator[i][j] == 1 and self.SAT_Load[j] > 0:
                         interfernce += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
                 
-                self.data_rate[i] = self.SAT_BW/self.SAT_Load[actions[i]] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][actions[i]] / (interfernce + 10**(-12))))
-                #print(f"{self.timestep}-th, {i}-agent service channel gain {self.channel_gain[i][actions[i]]}")
-                #print(f"{self.timestep}-th, {i}-agent Data rate {self.data_rate[i]}")
+                FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[i] - self.SAT_point[actions[i]]))) ** 2
+                data_rate[i] = self.SAT_BW/SAT_load[actions[i]] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][actions[i]] / (interfernce*FSPL + 10**(-12))))
         if self.debugging: print(f"{self.timestep}-times Agents' data rate: {self.data_rate}")
+        return data_rate
 
     def _update_load_SAT(self) -> None:
         '''
@@ -319,6 +328,15 @@ class LEOSATEnv(AECEnv):
         self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
             self.SAT_Load[self.states[self.agents[i]]] += 1
+    
+    def _update_benchmark_load_info(self, actions):
+        '''
+        벤치마킹 load 정보 업데이트
+        '''
+        SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
+        for i in range(self.GS_size):
+            SAT_Load[actions[i]] += 1
+        return SAT_Load
     
     # load 정보 update 이상함?
     def _get_load_SAT(self) -> None:
@@ -358,9 +376,8 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             for j in range(self.SAT_len*2):
                 self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
-        # Update SINR info, --> cell 반경 밖인 경우 SINR -inf
-        if self.interference_mode:
-            self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
+        # Update channel gain
+        self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
 
         # observations
         self.observations = {}
@@ -415,6 +432,11 @@ class LEOSATEnv(AECEnv):
             if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
             # Update coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
+            # visible time
+            self.visible_time = np.zeros((self.GS_size,self.SAT_len*2))
+            for i in range(self.GS_size):
+                for j in range(self.SAT_len*2):
+                    self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
             # Update load info
             self._update_load_SAT()
             # Get load info
@@ -425,7 +447,8 @@ class LEOSATEnv(AECEnv):
             _actions = np.array(list(self.states.values()))
             #print(f"{self.timestep}-step actions: {_actions}")
             # Update Data rate
-            self._cal_data_rate(_actions)
+            self.data_rate = self._cal_data_rate(_actions, self.SAT_Load)
+            self.rate_data_log[:,self.timestep] =  self.data_rate
 
             for i in range(self.GS_size):
                 observation = (
@@ -438,82 +461,103 @@ class LEOSATEnv(AECEnv):
                 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -50
+                    reward = -100
                     self.agent_status_log[i][self.timestep] = 1
                     _actions[i] = -1 # overload 카운팅에서 제외 설정
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     self.rewards[self.agents[i]] = reward
 
+            # update benchmark data rate
+            if self.debugging:
+                MVT_data_rate = np.zeros((self.GS_size))
+                random_data_rate = np.zeros((self.GS_size))
+                channle_gain_based_data_rate = np.zeros((self.GS_size))
+
+                # get load info
+                MVT_load_info = self._update_benchmark_load_info(self.MVT_service_index)
+                random_load_info = self._update_benchmark_load_info(self.random_service_index)
+                channle_based_load_info = self._update_benchmark_load_info(self.channel_based_service_index)
+
+                MVT_data_rate = self._cal_data_rate(self.MVT_service_index, MVT_load_info)
+                self.MVT_data_rate_log[:, self.timestep] = MVT_data_rate
+                random_data_rate = self._cal_data_rate(self.random_service_index, random_load_info)
+                self.random_data_rate_log[:, self.timestep] = random_data_rate
+                channle_gain_based_data_rate = self._cal_data_rate(self.channel_based_service_index, channle_based_load_info)
+                self.channel_based_data_rate_log[:, self.timestep] = channle_gain_based_data_rate
+
             # rewards
             for i in range(self.GS_size):
                 # Benchmark
-                # if self.debugging: 
-                #     print(f"{self.timestep}-time step, {i}-th agent's load info: {self.load_info[i]}")
-                #     print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
-                #     print(f"{self.timestep}-time step, {i}-th agent info: MAC: {self.MAC_service_index[i]}")
-                #     print(f"{self.timestep}-time step, {i}-th agent info: SINR: {self.SINR_service_index[i]}")
-                #     # MVT
-                #     if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or SINRs[i][self.MVT_service_index[i]] < self.threshold:
-                #         idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
-                #         # HOF: non-coverage area
-                #         # if self.coverage_indicator[i][self.MVT_service_index[idx]] == 0:
-                #         #     self.MVT_status_log[i][self.timestep] = 1
-                #         # HOF: SINR
-                #         if SINRs[i][self.MVT_service_index[idx]] < self.threshold:
-                #             self.MVT_status_log[i][self.timestep] = 2
-                #         # HOF: Overload
-                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MVT_service_index):
-                #             self.MVT_status_log[i][self.timestep] = 3
-                #         # HO
-                #         else:
-                #             self.MVT_service_index[i] = idx
-                #             self.MVT_status_log[i][self.timestep] = 4
-                #     else:
-                #         self.MVT_status_log[i][self.timestep] = 5
-                #         self.MVT_SINR_log[i][self.timestep] = SINRs[i][self.MVT_service_index[i]]
+                if self.debugging:                     
+                    print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
+                    print(f"{self.timestep}-time step, {i}-th agent info: RANDOM: {self.random_service_index[i]}")
+                    print(f"{self.timestep}-time step, {i}-th agent info: channel-gain-based: {self.channel_based_service_index[i]}")
+                    # MVT
+                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or MVT_data_rate[i] < self.rate_threshold:
+                        idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
+                        interference = 0
+                        for j in range(self.SAT_len * self.SAT_plane):
+                            if idx == j: continue
+                            elif self.coverage_indicator[i][j] == 1 and MVT_load_info[j] > 0:
+                                    interference += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
+                        FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[i] - self.SAT_point[idx]))) ** 2
+                        data_rate = self.SAT_BW/MVT_load_info[idx] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][idx] / (interference*FSPL + 10**(-12))))
+                        # HOF: QoS
+                        if data_rate < self.rate_threshold:
+                            self.MVT_status_log[i][self.timestep] = 2
+                        # HO
+                        else:
+                            self.MVT_service_index[i] = idx
+                            self.MVT_status_log[i][self.timestep] = 3
+                    else:
+                        self.MVT_status_log[i][self.timestep] = 4
                     
-                #     # MAC
-                #     if self.coverage_indicator[i][self.MAC_service_index[i]] == 0 or SINRs[i][self.MAC_service_index[i]] < self.threshold:
-                #         _load_data = np.zeros(self.SAT_len*self.SAT_plane)
-                #         for j in range(self.SAT_len*self.SAT_plane):
-                #             if self.coverage_indicator[i][j] == 0: pass
-                #             else:
-                #                 _load_data[j] = self.SAT_Load_MAX[j] - np.count_nonzero(self.MAC_service_index == j)
-                #         idx = np.where(_load_data == np.max(_load_data))[0][0]
-                #         self.MAC_service_index[i] = idx
-                #         # HOF: non-coverage area
-                #         if self.coverage_indicator[i][self.MAC_service_index[idx]] == 0:
-                #             self.MAC_status_log[i][self.timestep] = 1
-                #         # HOF: SINR
-                #         elif SINRs[i][self.MAC_service_index[idx]] < self.threshold:
-                #             self.MAC_status_log[i][self.timestep] = 2
-                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.MAC_service_index):
-                #             self.SINR_status_log[i][self.timestep] = 3
-                #         else: self.MAC_status_log[i][self.timestep] = 4
-                #     else:
-                #         self.MAC_status_log[i][self.timestep] = 5
-                #         self.MAC_SINR_log[i][self.timestep] = SINRs[i][self.MAC_service_index[i]]
+                    # RANDOM
+                    if self.coverage_indicator[i][self.random_service_index[i]] == 0 or random_data_rate[i] < self.rate_threshold:
+                        idx = np.random.randint(0, self.SAT_len*self.SAT_plane)
+                        interference = 0
+                        for j in range(self.SAT_len * self.SAT_plane):
+                            if idx == j: continue
+                            elif self.coverage_indicator[i][j] == 1 and random_load_info[j] > 0:
+                                    interference += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
+                        FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[i] - self.SAT_point[idx]))) ** 2
+                        data_rate = self.SAT_BW/random_load_info[idx] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][idx] / (interference*FSPL + 10**(-12))))
+                        
+                        if self.coverage_indicator[i][idx] == 0:
+                            self.random_status_log[i][self.timestep] = 1
+                        elif data_rate < self.rate_threshold:
+                            self.random_status_log[i][self.timestep] = 2
+                        # HO
+                        else:
+                            self.random_service_index[i] = idx
+                            self.random_status_log[i][self.timestep] = 3
+                    else:
+                        self.random_status_log[i][self.timestep] = 4
 
-                #     # SINR-based
-                #     if self.coverage_indicator[i][self.SINR_service_index[i]] == 0 or SINRs[i][self.SINR_service_index[i]] < self.threshold:
-                #         idx = np.where(SINRs[i] == np.max(SINRs[i]))[0][0]
-                #         # HOF: non-coverage area
-                #         if self.coverage_indicator[i][self.SINR_service_index[idx]] == 0:
-                #             self.SINR_status_log[i][self.timestep] = 1
-                #         # HOF: SINR
-                #         elif SINRs[i][self.SINR_service_index[idx]] < self.threshold:
-                #             self.SINR_status_log[i][self.timestep] = 2
-                #         # HOF: Overload
-                #         elif self.SAT_Load_MAX[idx] < np.count_nonzero(idx == self.SINR_service_index):
-                #             self.SINR_status_log[i][self.timestep] = 3
-                #         # HO
-                #         else:
-                #             self.SINR_service_index[i] = idx
-                #             self.SINR_status_log[i][self.timestep] = 4
-                #     else:
-                #         self.SINR_status_log[i][self.timestep] = 5
-                #         self.SINR_based_SINR_log[i][self.timestep] = SINRs[i][self.SINR_service_index[i]]
-                #     print(f"rewards:{self.rewards},\n visible_time: {self.visible_time}]\nSINR: {SINRs}\n") # 디버깅시 SINR도 보이게 설정.
+                    # channel gain-based
+                    if self.coverage_indicator[i][self.channel_based_service_index[i]] == 0 or channle_gain_based_data_rate[i] < self.rate_threshold:
+                        idx = np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0]
+                        interference = 0
+                        for j in range(self.SAT_len * self.SAT_plane):
+                            if idx == j: continue
+                            elif self.coverage_indicator[i][j] == 1 and channle_based_load_info[j] > 0:
+                                    interference += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[i][j]
+                        FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[i] - self.SAT_point[idx]))) ** 2
+                        data_rate = self.SAT_BW/channle_based_load_info[idx] * np.log2(1 + (self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][idx] / (interference*FSPL + 10**(-12))))
+                        
+
+                        # HOF: non-coverage area
+                        if self.coverage_indicator[i][idx] == 0:
+                            self.channel_based_status_log[i][self.timestep] = 1
+                        # HOF: QoS
+                        elif data_rate < self.rate_threshold:
+                            self.channel_based_status_log[i][self.timestep] = 2
+                        # HO
+                        else:
+                            self.channel_based_service_index[i] = idx
+                            self.channel_based_status_log[i][self.timestep] = 3
+                    else:
+                        self.channel_based_status_log[i][self.timestep] = 4                        
                 
                 if _actions[i] == -1 : continue # non-coverage 건너뛰기
                 reward = 0
@@ -605,24 +649,24 @@ class LEOSATEnv(AECEnv):
         3. SINR-based
         """
 
-        # SINR 수정해야함 -> Ack 시 통신 SINR만 추출해야함
+        # data rate 평균 (0포함) 수정해야함 -> Ack 시 통신 rate만 추출해야함
         for i in range(self.GS_size):
-            MADL_SINR = 0
-            MVT_SINR = 0
-            MAC_SINR = 0
-            SINR_based_SINR = 0
-            print(f"{i}-th Agent's episode average SINR (MADL based): {np.average(self.SINR_log[i,:])}")
-            MADL_SINR += np.average(self.SINR_log[i,:])
-            print(f"{i}-th Agent's episode average SINR (MVT based): {np.average(self.MVT_SINR_log[i,:])}")
-            MVT_SINR += np.average(self.MVT_SINR_log[i,:])
-            print(f"{i}-th Agent's episode average SINR (MAC based): {np.average(self.MAC_SINR_log[i,:])}")
-            MAC_SINR += np.average(self.MAC_SINR_log[i,:])
-            print(f"{i}-th Agent's episode average SINR (SINR based): {np.average(self.SINR_based_SINR_log[i,:])}")
-            SINR_based_SINR += np.average(self.SINR_based_SINR_log[i,:])
-        print(f"MADL episode average SINR:{MADL_SINR/self.GS_size}")
-        print(f"MVT episode average SINR:{MVT_SINR/self.GS_size}")
-        print(f"MAC episode average SINR:{MAC_SINR/self.GS_size}")
-        print(f"SINR-based episode average SINR:{SINR_based_SINR/self.GS_size}")
+            MADL_rate = 0
+            MVT_rate = 0
+            random_rate = 0
+            CG_based_rate = 0
+            print(f"{i}-th Agent's episode average data rate (MADL based): {np.average(self.rate_data_log[i,:])}")
+            MADL_rate += np.average(self.rate_data_log[i,:])
+            print(f"{i}-th Agent's episode average data rate (MVT based): {np.average(self.MVT_data_rate_log[i,:])}")
+            MVT_rate += np.average(self.MVT_data_rate_log[i,:])
+            print(f"{i}-th Agent's episode average data rate (random based): {np.average(self.random_data_rate_log[i,:])}")
+            random_rate += np.average(self.random_data_rate_log[i,:])
+            print(f"{i}-th Agent's episode average data rate (CG based): {np.average(self.channel_based_data_rate_log[i,:])}")
+            CG_based_rate += np.average(self.channel_based_data_rate_log[i,:])
+        print(f"MADL episode average SINR:{MADL_rate/self.GS_size}")
+        print(f"MVT episode average data rate:{MVT_rate/self.GS_size}")
+        print(f"RANDOM episode average data rate:{random_rate/self.GS_size}")
+        print(f"CG-based episode average data rate:{CG_based_rate/self.GS_size}")
 
         # Plot Agents' Status
         plt.figure(1)
@@ -659,50 +703,50 @@ class LEOSATEnv(AECEnv):
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("MVT")
 
-        # Plot Benchmark-MAC
+        # Plot Benchmark-Random
         plt.figure(3)
-        MAC_status = np.zeros((self.GS_size, 5))
+        Random_status = np.zeros((self.GS_size, 5))
         for i in range(self.GS_size):
-            MAC_status[i][0] = np.count_nonzero(self.MAC_status_log[i] == 1)
-            MAC_status[i][1] = np.count_nonzero(self.MAC_status_log[i] == 2)
-            MAC_status[i][2] = np.count_nonzero(self.MAC_status_log[i] == 3)
-            MAC_status[i][3] = np.count_nonzero(self.MAC_status_log[i] == 4)
+            Random_status[i][0] = np.count_nonzero(self.random_status_log[i] == 1)
+            Random_status[i][1] = np.count_nonzero(self.random_status_log[i] == 2)
+            Random_status[i][2] = np.count_nonzero(self.random_status_log[i] == 3)
+            Random_status[i][3] = np.count_nonzero(self.random_status_log[i] == 4)
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, MAC_status[:,0], bar_width, label='HOF-non_service')
-        status_2 = plt.bar(agents + bar_width, MAC_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,2], bar_width, label='HO')
-        status_4 = plt.bar(agents + 3*bar_width, MAC_status[:,3], bar_width, label='ACK')
+        status_1 = plt.bar(agents, Random_status[:,0], bar_width, label='HOF-non_service')
+        status_2 = plt.bar(agents + bar_width, Random_status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, Random_status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, Random_status[:,3], bar_width, label='ACK')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
-        plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("Random")
 
-        # Plot Benchmark-SINR
+        # Plot Benchmark-channel-based
         plt.figure(4)
-        SINR_status = np.zeros((self.GS_size, 5))
+        channel_based_status = np.zeros((self.GS_size, 5))
         for i in range(self.GS_size):
-            SINR_status[i][0] = np.count_nonzero(self.SINR_status_log[i] == 1)
-            SINR_status[i][1] = np.count_nonzero(self.SINR_status_log[i] == 2)
-            SINR_status[i][2] = np.count_nonzero(self.SINR_status_log[i] == 3)
-            SINR_status[i][3] = np.count_nonzero(self.SINR_status_log[i] == 4)            
+            channel_based_status[i][0] = np.count_nonzero(self.channel_based_status_log[i] == 1)
+            channel_based_status[i][1] = np.count_nonzero(self.channel_based_status_log[i] == 2)
+            channel_based_status[i][2] = np.count_nonzero(self.channel_based_status_log[i] == 3)
+            channel_based_status[i][3] = np.count_nonzero(self.channel_based_status_log[i] == 4)            
 
         bar_width = 0.1
-        status_1 = plt.bar(agents, SINR_status[:,0], bar_width, label='HOF-non_service')
-        status_2 = plt.bar(agents + bar_width, SINR_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, SINR_status[:,2], bar_width, label='HO')
-        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='ACK')        
+        status_1 = plt.bar(agents, channel_based_status[:,0], bar_width, label='HOF-non_service')
+        status_2 = plt.bar(agents + bar_width, channel_based_status[:,1], bar_width, label='HOF-QoS')
+        status_3 = plt.bar(agents + 2*bar_width, channel_based_status[:,2], bar_width, label='HO')
+        status_4 = plt.bar(agents + 3*bar_width, channel_based_status[:,3], bar_width, label='ACK')        
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
-        plt.xlabel('# of Agent'); plt.legend(); plt.title("SINR-based")
+        plt.xlabel('# of Agent'); plt.legend(); plt.title("Channel-gain-based")
 
         # ACK variance
-        print(f"ACK var --> MADQN: {np.var(_status[:,3])}, MVT: {np.var(MVT_status[:,3])}, MAC: {np.var(MAC_status[:,3])}, SINR: {SINR_status[:,3]}")
+        print(f"ACK var --> MADQN: {np.var(_status[:,3])}, MVT: {np.var(MVT_status[:,3])}, Random: {np.var(Random_status[:,3])}, SINR: {channel_based_status[:,3]}")
         
         # Plot comparsion of Ack HO strategies
         plt.figure(7)
         bar_width = 0.1
         status_1 = plt.bar(agents, _status[:,3], bar_width, label='MADQN')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,3], bar_width, label='MVT')
-        status_3 = plt.bar(agents + 2*bar_width, MAC_status[:,3], bar_width, label='MAC')
-        status_4 = plt.bar(agents + 3*bar_width, SINR_status[:,3], bar_width, label='MAX-SINR')
+        status_3 = plt.bar(agents + 2*bar_width, Random_status[:,3], bar_width, label='Random')
+        status_4 = plt.bar(agents + 3*bar_width, channel_based_status[:,3], bar_width, label='MAX-CG')
         plt.xticks(np.arange(bar_width, 10+bar_width,1), agents)
         plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
 
@@ -710,23 +754,23 @@ class LEOSATEnv(AECEnv):
         plt.figure(5)
         HO_MADQN = np.zeros((self.terminal_time+1))
         HO_MVT   = np.zeros((self.terminal_time+1))
-        HO_MAC   = np.zeros((self.terminal_time+1))
-        HO_SINR  = np.zeros((self.terminal_time+1))
+        HO_RANDOM   = np.zeros((self.terminal_time+1))
+        HO_CG = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
-                if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2 or self.agent_status_log[agent][t] == 3:
+                if self.agent_status_log[agent][t] == 3:
                     HO_MADQN[t:] += 1
-                if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2 or self.MVT_status_log[agent][t] == 3:
+                if self.MVT_status_log[agent][t] == 3:
                     HO_MVT[t:] += 1
-                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2 or self.MAC_status_log[agent][t] == 3:
-                    HO_MAC[t:] += 1
-                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2 or self.SINR_status_log[agent][t] == 3:
-                    HO_SINR[t:] += 1
+                if self.random_status_log[agent][t] == 3:
+                    HO_RANDOM[t:] += 1
+                if self.channel_based_status_log[agent][t] == 3:
+                    HO_CG[t:] += 1
         
         HO_MADQN[:] /= self.GS_size
         HO_MVT[:] /= self.GS_size
-        HO_MAC[:] /= self.GS_size
-        HO_SINR[:] /= self.GS_size
+        HO_RANDOM[:] /= self.GS_size
+        HO_CG[:] /= self.GS_size
         time_step = np.arange(self.terminal_time)
         interval = 15 # mark interveal
 
@@ -734,9 +778,9 @@ class LEOSATEnv(AECEnv):
 
         plt.plot(time_step, HO_MVT[1:], label='MVT', marker='.', markevery=interval)        
 
-        plt.plot(time_step, HO_MAC[1:], label='MAC', marker='|', markevery=interval)
+        plt.plot(time_step, HO_RANDOM[1:], label='Random', marker='|', markevery=interval)
 
-        plt.plot(time_step, HO_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
+        plt.plot(time_step, HO_CG[1:], label='MAX-CG', marker='P', markevery=interval)
 
         plt.xlim((1,155))
         plt.ylabel('Average handover'); plt.legend(); plt.xlabel('time step'); plt.grid()
@@ -746,33 +790,33 @@ class LEOSATEnv(AECEnv):
         plt.figure(6)
         HOF_MADQN = np.zeros((self.terminal_time+1))
         HOF_MVT   = np.zeros((self.terminal_time+1))
-        HOF_MAC   = np.zeros((self.terminal_time+1))
-        HOF_SINR  = np.zeros((self.terminal_time+1))
+        HOF_RANDOM   = np.zeros((self.terminal_time+1))
+        HOF_CG  = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
                 if self.agent_status_log[agent][t] == 1 or self.agent_status_log[agent][t] == 2:
                     HOF_MADQN[t:] += 1
                 if self.MVT_status_log[agent][t] == 1 or self.MVT_status_log[agent][t] == 2:
                     HOF_MVT[t:] += 1
-                if self.MAC_status_log[agent][t] == 1 or self.MAC_status_log[agent][t] == 2:
-                    HOF_MAC[t:] += 1
-                if self.SINR_status_log[agent][t] == 1 or self.SINR_status_log[agent][t] == 2:
-                    HOF_SINR[t:] += 1
+                if self.random_status_log[agent][t] == 1 or self.random_status_log[agent][t] == 2:
+                    HOF_RANDOM[t:] += 1
+                if self.channel_based_status_log[agent][t] == 1 or self.channel_based_status_log[agent][t] == 2:
+                    HOF_CG[t:] += 1
 
         HOF_MADQN /= self.GS_size
         HOF_MVT   /= self.GS_size
-        HOF_MAC   /= self.GS_size
-        HOF_SINR  /= self.GS_size
+        HOF_RANDOM   /= self.GS_size
+        HOF_CG  /= self.GS_size
 
         _HOF_MADQN = (HOF_MADQN[-1]) / self.terminal_time
         _HOF_MVT   = (HOF_MVT[-1]) / self.terminal_time
-        _HOF_MAC   = (HOF_MAC[-1]) / self.terminal_time
-        _HOF_SINR  = (HOF_SINR[-1]) / self.terminal_time
+        _HOF_RANDOM   = (HOF_RANDOM[-1]) / self.terminal_time
+        _HOF_CG  = (HOF_CG[-1]) / self.terminal_time
         
         HOF_MADQN[:] = _HOF_MADQN
         HOF_MVT[:]   = _HOF_MVT  
-        HOF_MAC[:]   = _HOF_MAC  
-        HOF_SINR[:]  = _HOF_SINR 
+        HOF_RANDOM[:]   = _HOF_RANDOM  
+        HOF_CG[:]  = _HOF_CG 
 
         time_step = np.arange(self.terminal_time)
         interval = 15 # mark interveal
@@ -781,36 +825,43 @@ class LEOSATEnv(AECEnv):
 
         plt.plot(time_step, HOF_MVT[1:], label='MVT', marker='.', markevery=interval)        
 
-        plt.plot(time_step, HOF_MAC[1:], label='MAC', marker='|', markevery=interval)
+        plt.plot(time_step, HOF_RANDOM[1:], label='Random', marker='|', markevery=interval)
 
-        plt.plot(time_step, HOF_SINR[1:], label='MAX-SINR', marker='P', markevery=interval)
+        plt.plot(time_step, HOF_CG[1:], label='MAX-CG', marker='P', markevery=interval)
 
         plt.xlim((1,155))
         plt.ylabel("Average communication failure rate"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
 
+        # Data rate log
+        plt.figure(8)
+        time_step = np.arange(self.terminal_time+1)
+        for i in range(self.GS_size):
+            plt.step(time_step, self.rate_data_log[i])
+        plt.title("Agents' Data rate log")
+
         print(f"MADQN average HO: {HO_MADQN[-1]}")
         print(f"MVT average HO: {HO_MVT[-1]}")
-        print(f"MAC average HO: {HO_MAC[-1]}")
-        print(f"SINR average HO: {HO_SINR[-1]}")
+        print(f"RANDOM average HO: {HO_RANDOM[-1]}")
+        print(f"MAX CG average HO: {HO_CG[-1]}")
 
         print(f"MADQN average HOF rate: {HOF_MADQN[-1]}")
         print(f"MVT average HOF rate: {HOF_MVT[-1]}")
-        print(f"MAC average HOF rate: {HOF_MAC[-1]}")
-        print(f"SINR average HOF rate: {HOF_SINR[-1]}")
+        print(f"RANDOM average HOF rate: {HOF_RANDOM[-1]}")
+        print(f"MAX CG average HOF rate: {HOF_CG[-1]}")
 
         cnt_HOF_MADQN = np.sum(_status[:,2])
         cnt_HOF_MVT   = np.sum(MVT_status[:,2])
-        cnt_HOF_MAC   = np.sum(MAC_status[:,2])
-        cnt_HOF_SINR  = np.sum(SINR_status[:,2])
+        cnt_HOF_RANDOM   = np.sum(Random_status[:,2])
+        cnt_HOF_CG  = np.sum(channel_based_status[:,2])
 
         print(f"MADQN 스킴 핸드오버실패 총 횟수: {cnt_HOF_MADQN},\
               QoS: 횟수-{np.sum(_status[:,2])}, 비율-{(np.sum(_status[:,2]))/cnt_HOF_MADQN}")
         print(f"MVT 스킴 핸드오버실패 총 횟수: {cnt_HOF_MVT}, \
               QoS: 횟수-{np.sum(MVT_status[:,2])}, 비율-{(np.sum(MVT_status[:,2]))/cnt_HOF_MVT}")
-        print(f"MAC 스킴 핸드오버실패 총 횟수: {cnt_HOF_MAC}, \
-              QoS: 횟수-{np.sum(MAC_status[:,2])}, 비율-{(np.sum(MAC_status[:,2]))/cnt_HOF_MAC}")
-        print(f"MAX-SINR 스킴 핸드오버실패 총 횟수: {cnt_HOF_SINR},  \
-              QoS: 횟수-{np.sum(SINR_status[:,2])}, 비율-{(np.sum(SINR_status[:,2]))/cnt_HOF_SINR}")
+        print(f"RANDOM 스킴 핸드오버실패 총 횟수: {cnt_HOF_RANDOM}, \
+              QoS: 횟수-{np.sum(Random_status[:,2])}, 비율-{(np.sum(Random_status[:,2]))/cnt_HOF_RANDOM}")
+        print(f"MAX-CG 스킴 핸드오버실패 총 횟수: {cnt_HOF_CG},  \
+              QoS: 횟수-{np.sum(channel_based_status[:,2])}, 비율-{(np.sum(channel_based_status[:,2]))/cnt_HOF_CG}")
 
         plt.show()
 

@@ -17,8 +17,8 @@ from env import LEOSATEnv
 
 if __name__ == "__main__":
     # Step 1: Load the PettingZoo environment (selecte rendoer_mode)
-    env = LEOSATEnv(render_mode="human", debugging=True, interference_mode=True)
-    #env = LEOSATEnv(debugging=True, interference_mode=True)
+    #env = LEOSATEnv(render_mode="human", debugging=True, interference_mode=True)
+    env = LEOSATEnv(debugging=True, interference_mode=True)
 
     # Step 2: Wrap the environment for Tianshou interfacing
     env = PettingZooEnv(env)
