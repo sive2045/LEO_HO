@@ -43,7 +43,7 @@ class LEOSATEnv(AECEnv):
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
 
-        self.GS_size = 20
+        self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.shadow_fading = 0.5 # [dB]
@@ -53,7 +53,7 @@ class LEOSATEnv(AECEnv):
         self.timestep = None
         self.terminal_time = 155 # s
         
-        self.rate_threshold = 50_000_000 # 50 Mbps
+        self.rate_threshold = 100_000_000 # 100 Mbps
         self.data_rate = np.zeros((self.GS_size))
         self.rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
 
@@ -81,7 +81,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 1_000
         
         self.visible_time_weight = 1
-        self.rate_weight = 10**(-6)
+        self.rate_weight = 10**(-7)
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
@@ -471,7 +471,7 @@ class LEOSATEnv(AECEnv):
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -100
+                    reward = -30
                     self.agent_status_log[i][self.timestep] = 1
                     _actions[i] = -1 # overload 카운팅에서 제외 설정
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
@@ -589,17 +589,17 @@ class LEOSATEnv(AECEnv):
                 if _service_indicator[i][self.states[self.agents[i]]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i] < self.rate_threshold:
-                        reward = -50
+                        reward = -20
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
-                        reward = -30
+                        reward = -10
                         self.agent_status_log[i][self.timestep] = 3
                 # Ack
                 else:
                     if self.data_rate[i] < self.rate_threshold:
-                        reward = -50
+                        reward = -20
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     else:

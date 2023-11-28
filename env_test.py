@@ -31,15 +31,15 @@ if __name__ == "__main__":
     ) else env.observation_space
     state_shape = observation_space.shape or observation_space.n
     action_shape = env.action_space.shape or env.action_space.n
-    for _ in range(20): 
+    for _ in range(10): 
         # model
         net = Net(
             state_shape,
             action_shape,
-            hidden_sizes=[256, 256, 256, 256],
+            hidden_sizes=[128, 256, 256],
             device='cuda'
         ).to('cuda')
-        optim = torch.optim.Adam(net.parameters(), lr=0.001)
+        optim = torch.optim.Adam(net.parameters(), lr=0.005)
         agent = DQNPolicy(
             net,
             optim,
