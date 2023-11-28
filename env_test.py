@@ -31,7 +31,7 @@ if __name__ == "__main__":
     ) else env.observation_space
     state_shape = observation_space.shape or observation_space.n
     action_shape = env.action_space.shape or env.action_space.n
-    for _ in range(10): 
+    for _ in range(20): 
         # model
         net = Net(
             state_shape,
