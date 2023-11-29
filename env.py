@@ -79,8 +79,8 @@ class LEOSATEnv(AECEnv):
         self.GNSS_noise = 1 # 수정 예정
         self.anttena_gain = 1_000
         
-        self.visible_time_weight = 1
-        self.rate_weight = 10**(-5)
+        self.visible_time_weight = 0.1
+        self.rate_weight = 10**(-7)
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
@@ -259,16 +259,6 @@ class LEOSATEnv(AECEnv):
         coverage_index = np.where(dist <= coverage_radius)
         
         coverage_indicator[coverage_index[:][0], coverage_index[:][1]] = 1
-
-        if self.interference_mode:
-            _dist = np.zeros((self.GS_size, self.ifc_SAT_len))
-            for i in range(self.GS_size):
-                for j in range(self.ifc_SAT_len):
-                    _dist[i][j] = np.linalg.norm(GS[i,0:2] - self.ifc_SAT_point[j,0:2]) # 2-dim
-            
-            _ifc_coverage_idx = np.where(_dist <= self.ifc_SAT_coverage_radius)
-            self.ifc_service_indicator[_ifc_coverage_idx[:][0], _ifc_coverage_idx[:][1]] = 1
-
         return coverage_indicator        
 
     def _get_visible_time(self, SAT_point, SAT_speed, coverage_radius, GS):
@@ -404,8 +394,6 @@ class LEOSATEnv(AECEnv):
         
         # logs
         self.agent_status_log = np.zeros((self.GS_size, self.terminal_time+1)) # 1: non-serviced, 2: HOF-QoS, 3: HO, 4: ACK 
-        self.SINR_log = np.zeros((self.GS_size, self.terminal_time+1))
-        self.load_log = np.zeros((self.GS_size, self.terminal_time+1))
 
         # Benchmark Scheme
         if self.debugging:
@@ -445,6 +433,7 @@ class LEOSATEnv(AECEnv):
             if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
             # Update coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
+            #if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
             # visible time
             self.visible_time = np.zeros((self.GS_size,self.SAT_len*2))
             for i in range(self.GS_size):
@@ -456,8 +445,6 @@ class LEOSATEnv(AECEnv):
             if self.debugging: print(f"Load info: {self.SAT_Load}")
             # Update channel gain
             self._cal_shadowed_rice_fading_gain()
-            
-            #print(f"{self.timestep}-step actions: {_actions}")
             # Update Data rate
             self.data_rate = self._cal_data_rate(self.SAT_Load)
 
@@ -476,14 +463,6 @@ class LEOSATEnv(AECEnv):
                 # HO시도 -> HO 횟수로 취급
                 if (_service_indicator[i] == self.service_indicator[i]).min() == False:
                     self.HO_log[i][self.timestep] = 1
-
-                # non-coverage area
-                if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -35
-                    self.agent_status_log[i][self.timestep] = 1
-                    _actions[i] = -1 # overload 카운팅에서 제외 설정
-                    self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
-                    self.rewards[self.agents[i]] = reward
 
             # update benchmark data rate
             if self.debugging:
@@ -567,28 +546,33 @@ class LEOSATEnv(AECEnv):
                     else:
                         self.channel_based_status_log[i][self.timestep] = 4                        
                 
-                if _actions[i] == -1 : continue # non-coverage 건너뛰기
                 reward = 0
-                self.load_log[i][self.timestep] = np.count_nonzero(_actions == _actions[i])
+
+                # HOF-non service SAT
+                if self.coverage_indicator[i][_actions[i]] == 0:
+                    reward = -10
+                    self.agent_status_log[i][self.timestep] = 1
+                    self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                    self.rewards[self.agents[i]] = reward
                 # HO occur
-                if _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -25
+                        reward = -8
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
-                        reward = -15
+                        reward = -5
                         self.agent_status_log[i][self.timestep] = 3
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -25
+                        reward = -8
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     else:
-                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + self.rate_weight * self.data_rate[i][_actions[i]]
+                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((10, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
                         self.agent_status_log[i][self.timestep] = 4
                         if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i]}")
                 self.rewards[self.agents[i]] = reward
@@ -671,7 +655,8 @@ class LEOSATEnv(AECEnv):
             random_rate += np.average(self.random_data_rate_log[i,:])
             print(f"{i}-th Agent's episode average data rate (CG based): {np.average(self.channel_based_data_rate_log[i,:])}")
             CG_based_rate += np.average(self.channel_based_data_rate_log[i,:])
-        print(f"MADL episode average SINR:{MADL_rate/self.GS_size}")
+        print(f"MADL MAX data rate: {np.max(self.rate_data_log)}")
+        print(f"MADL episode average data rate:{MADL_rate/self.GS_size}")
         print(f"MVT episode average data rate:{MVT_rate/self.GS_size}")
         print(f"RANDOM episode average data rate:{random_rate/self.GS_size}")
         print(f"CG-based episode average data rate:{CG_based_rate/self.GS_size}")
