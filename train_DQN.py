@@ -50,7 +50,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
     parser.add_argument('--batch-size', type=int, default=128)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128, 128])
+    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
     parser.add_argument('--training-num', type=int, default=10)
     parser.add_argument('--test-num', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')

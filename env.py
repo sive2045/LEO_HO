@@ -70,7 +70,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_point[:,2] = self.SAT_height # km, SAT height 
         self.SAT_coverage[:,2,:] = self.SAT_height # km, SAT height
         self.SAT_Load_MAX = np.full(self.SAT_len*self.SAT_plane, 50) # the maximum available channels of SAT
-        self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane)) # the available channels of SAT
+        self.SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
         
         self.SAT_BW = 200_000_000 # Hz BW budget of SAT
@@ -80,7 +80,7 @@ class LEOSATEnv(AECEnv):
         self.anttena_gain = 1_000
         
         self.visible_time_weight = 1
-        self.rate_weight = 10**(-7)
+        self.rate_weight = 10**(-5)
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
@@ -319,30 +319,30 @@ class LEOSATEnv(AECEnv):
                 if self.coverage_indicator[i][t]:
                     FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[i] - self.SAT_point[t]))) ** 2
                     signal_power = self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][t]
-                    if SAT_load[t] > 0:
-                        data_rate[i][t] = self.SAT_BW/SAT_load[t] * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
+                    if SAT_load[i][t] > 0:
+                        data_rate[i][t] = self.SAT_BW/SAT_load[i][t] * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
                     else:
                         data_rate[i][t] = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
 
         if self.debugging: print(f"{self.timestep}-times Agents' data rate: {data_rate}")
         return data_rate
 
-    def _update_load_SAT(self) -> None:
+    def _update_load_SAT(self, actions) -> None:
         '''
         time slot 한번당 실행
         -> 초기화 후 사용
         '''
-        self.SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
+        self.SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
-            self.SAT_Load[self.states[self.agents[i]]] += 1
+            self.SAT_Load[i, actions[i]] += 1
     
     def _update_benchmark_load_info(self, actions):
         '''
         벤치마킹 load 정보 업데이트
         '''
-        SAT_Load = np.zeros((self.SAT_len * self.SAT_plane))
+        SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
-            SAT_Load[actions[i]] += 1
+            SAT_Load[i, actions[i]] += 1
         return SAT_Load
     
     # load 정보 update 이상함?
@@ -387,13 +387,15 @@ class LEOSATEnv(AECEnv):
         self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         # Update data rate
         self.data_rate = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane), dtype='float64')
+        # init load info
+        self.SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
 
         # observations
         self.observations = {}
         for i in range(self.GS_size):
             observation = (
                 self.coverage_indicator[i],
-                self.load_info[i],
+                self.SAT_Load[i],
                 self.visible_time[i],
                 self.channel_gain[i],
                 self.data_rate[i]
@@ -449,13 +451,12 @@ class LEOSATEnv(AECEnv):
                 for j in range(self.SAT_len*2):
                     self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
             # Update load info
-            self._update_load_SAT()
-            # Get load info
-            self._get_load_SAT()
+            _actions = np.array(list(self.states.values()))
+            self._update_load_SAT(_actions)
+            if self.debugging: print(f"Load info: {self.SAT_Load}")
             # Update channel gain
             self._cal_shadowed_rice_fading_gain()
             
-            _actions = np.array(list(self.states.values()))
             #print(f"{self.timestep}-step actions: {_actions}")
             # Update Data rate
             self.data_rate = self._cal_data_rate(self.SAT_Load)
@@ -463,7 +464,7 @@ class LEOSATEnv(AECEnv):
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
-                    self.load_info[i],
+                    self.SAT_Load[i],
                     self.visible_time[i],
                     self.channel_gain[i],
                     self.data_rate[i]
@@ -478,7 +479,7 @@ class LEOSATEnv(AECEnv):
 
                 # non-coverage area
                 if self.coverage_indicator[i][self.states[self.agents[i]]] == 0:
-                    reward = -30
+                    reward = -35
                     self.agent_status_log[i][self.timestep] = 1
                     _actions[i] = -1 # overload 카운팅에서 제외 설정
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
@@ -573,17 +574,17 @@ class LEOSATEnv(AECEnv):
                 if _service_indicator[i][self.states[self.agents[i]]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -20
+                        reward = -25
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     # HO cost
                     else:
-                        reward = -10
+                        reward = -15
                         self.agent_status_log[i][self.timestep] = 3
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -20
+                        reward = -25
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     else:
