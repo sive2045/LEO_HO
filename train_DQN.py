@@ -31,8 +31,8 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--seed', type=int, default=1626)
     parser.add_argument('--eps-test', type=float, default=0.05)
     parser.add_argument('--eps-train', type=float, default=0.1)
-    parser.add_argument('--buffer-size', type=int, default=500_000)
-    parser.add_argument('--lr', type=float, default=0.06)
+    parser.add_argument('--buffer-size', type=int, default=1_000_000)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument(
         '--gamma', type=float, default=0.9, help='a smaller gamma favors earlier win'
     )
@@ -43,16 +43,16 @@ def get_parser() -> argparse.ArgumentParser:
         default=10,
         help='Number of groudnstations(agents) in the env'
     )
-    parser.add_argument('--n-step', type=int, default=10)
+    parser.add_argument('--n-step', type=int, default=154)
     parser.add_argument('--target-update-freq', type=int, default=1000)
     parser.add_argument('--epoch', type=int, default=1_000_000)
-    parser.add_argument('--step-per-epoch', type=int, default=10000)
+    parser.add_argument('--step-per-epoch', type=int, default=1550)
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
     parser.add_argument('--batch-size', type=int, default=256)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256])
-    parser.add_argument('--training-num', type=int, default=10)
-    parser.add_argument('--test-num', type=int, default=10)
+    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128])
+    parser.add_argument('--training-num', type=int, default=20)
+    parser.add_argument('--test-num', type=int, default=20)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0.0)
     parser.add_argument('--max-reward', type=float, default=2000*155)
@@ -212,7 +212,7 @@ def watch(
     policy.eval()
     [agent.set_eps(args.eps_test) for agent in policy.policies.values()]
     collector = Collector(policy, env, exploration_noise=True)
-    result = collector.collect(n_episode=1, render=False)
+    result = collector.collect(n_episode=1, render=1 /30)
     rews, lens = result["rews"], result["lens"]
     print(f"Final reward: {rews[:, 0].mean()}, length: {lens.mean()}")
 
