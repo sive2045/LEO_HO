@@ -294,7 +294,7 @@ class LEOSATEnv(AECEnv):
                     PDF = 1/(2*b) * (((2*b*m)/(2*b*m+omega))**(m)) * np.exp(-x/(2*b)) * sc.hyp1f1(m,1,omega*x/(2*b*(2*b*m+omega)))
                     idx = np.random.randint(0,1000)
                     self.channel_gain[i, j] = PDF[idx]
-        if self.debugging: print(f"{self.timestep}-times Agents' channel gain: {self.channel_gain}")
+        #if self.debugging: print(f"{self.timestep}-times Agents' channel gain: {self.channel_gain}")
         return self.channel_gain
 
     def _cal_data_rate(self, SAT_load):
@@ -314,7 +314,7 @@ class LEOSATEnv(AECEnv):
                     else:
                         data_rate[i][t] = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
 
-        if self.debugging: print(f"{self.timestep}-times Agents' data rate: {data_rate}")
+        #if self.debugging: print(f"{self.timestep}-times Agents' data rate: {data_rate}")
         return data_rate
 
     def _update_load_SAT(self, actions) -> None:
@@ -431,7 +431,7 @@ class LEOSATEnv(AECEnv):
             if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
             # Update coverage indicator
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
-            #if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
+            if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
             # visible time
             self.visible_time = np.zeros((self.GS_size,self.SAT_len*2))
             for i in range(self.GS_size):
@@ -546,10 +546,11 @@ class LEOSATEnv(AECEnv):
 
                 # HOF-non service SAT
                 if self.coverage_indicator[i][_actions[i]] == 0:
-                    reward = -15
+                    reward = -50
                     self.agent_status_log[i][self.timestep] = 1
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     self.rewards[self.agents[i]] = reward
+                    #self.terminations = {agent: True for agent in self.agents} # 학습 종료.
                 # HO occur
                 elif _service_indicator[i][_actions[i]] == 0:                    
                     # HOF: data rate 
@@ -557,21 +558,24 @@ class LEOSATEnv(AECEnv):
                         reward = -8
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                        self.rewards[self.agents[i]] = reward
                     # HO cost
                     else:
                         reward = -5
                         self.agent_status_log[i][self.timestep] = 3
+                        self.rewards[self.agents[i]] = reward
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
                         reward = -8
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
+                        self.rewards[self.agents[i]] = reward
                     else:
                         reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((10, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
                         self.agent_status_log[i][self.timestep] = 4
-                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i]}")
-                self.rewards[self.agents[i]] = reward
+                        if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i][_actions[i]]}, Visble time {self.visible_time[i, _actions[i]]}, reawrd: {reward}")
+                        self.rewards[self.agents[i]] = reward
 
             if self.render_mode == "human":
                 self.render()
@@ -655,6 +659,7 @@ class LEOSATEnv(AECEnv):
         print(f"MADL episode average data rate:{MADL_rate/self.GS_size}")
         print(f"MVT episode average data rate:{MVT_rate/self.GS_size}")
         print(f"RANDOM episode average data rate:{random_rate/self.GS_size}")
+        print(f"CG-based episode MAX data rate:{np.max(self.channel_based_data_rate_log)}")
         print(f"CG-based episode average data rate:{CG_based_rate/self.GS_size}")
 
         # Plot Agents' Status
