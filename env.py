@@ -546,12 +546,12 @@ class LEOSATEnv(AECEnv):
 
                 # HOF-non service SAT
                 if self.coverage_indicator[i][_actions[i]] == 0:
-                    reward = -10
+                    reward = -15
                     self.agent_status_log[i][self.timestep] = 1
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     self.rewards[self.agents[i]] = reward
                 # HO occur
-                elif _service_indicator[i][self.states[self.agents[i]]] == 0:                    
+                elif _service_indicator[i][_actions[i]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
                         reward = -8
