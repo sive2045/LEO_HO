@@ -110,7 +110,7 @@ class LEOSATEnv(AECEnv):
             i: spaces.Dict(
                 {
                     "observation": spaces.Box(
-                        low=0, high=1, shape=(5, self.SAT_len * self.SAT_plane), dtype=np.int8
+                        low=0, high=1, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.int8
                     ),
                 }
             )
@@ -385,9 +385,7 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             observation = (
                 self.coverage_indicator[i],
-                self.SAT_Load[i],
-                self.visible_time[i],
-                self.channel_gain[i],
+                self.visible_time[i],                
                 self.data_rate[i]
             )
             self.observations[self.agents[i]] = observation
@@ -451,9 +449,7 @@ class LEOSATEnv(AECEnv):
             for i in range(self.GS_size):
                 observation = (
                     self.coverage_indicator[i],
-                    self.SAT_Load[i],
                     self.visible_time[i],
-                    self.channel_gain[i],
                     self.data_rate[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
