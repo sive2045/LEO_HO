@@ -59,7 +59,7 @@ def get_parser() -> argparse.ArgumentParser:
 def get_env():
     return PettingZooEnv(LEOSATEnv())
 
-def test_ppo(args=get_args()):
+def test_ppo(args=get_parser()):
     env = get_env()
     observation_space = env.observation_space['observation'] if isinstance(
         env.observation_space, gym.spaces.Dict
