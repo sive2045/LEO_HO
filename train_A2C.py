@@ -17,9 +17,11 @@ from tianshou.utils import TensorboardLogger
 from tianshou.utils.net.common import ActorCritic, DataParallelNet, Net
 from tianshou.utils.net.discrete import Actor, Critic
 
+from gymnasium.spaces import Box
+
 from env import LEOSATEnv
 
-def get_args():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reward-threshold", type=float, default=None)
     parser.add_argument("--seed", type=int, default=1626)
@@ -156,6 +158,7 @@ def test_ppo(args=get_args()):
         result = collector.collect(n_episode=1, render=args.render)
         rews, lens = result["rews"], result["lens"]
         print(f"Final reward: {rews.mean()}, length: {lens.mean()}")
+
 
 
 if __name__ == "__main__":
