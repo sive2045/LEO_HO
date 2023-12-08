@@ -31,26 +31,26 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--seed', type=int, default=1626)
     parser.add_argument('--eps-test', type=float, default=0.05)
     parser.add_argument('--eps-train', type=float, default=0.1)
-    parser.add_argument('--buffer-size', type=int, default=500_000)
-    parser.add_argument('--lr', type=float, default=0.06)
+    parser.add_argument('--buffer-size', type=int, default=10_000_000)
+    parser.add_argument('--lr', type=float, default=5e-3)
     parser.add_argument(
-        '--gamma', type=float, default=0.9, help='a smaller gamma favors earlier win'
+        '--gamma', type=float, default=0.8, help='a smaller gamma favors earlier win'
     )
     parser.add_argument('--debugging', type=bool, default=False)
     parser.add_argument(
         '--n-groundstations',
         type=int,
-        default=10,
+        default=30,
         help='Number of groudnstations(agents) in the env'
     )
     parser.add_argument('--n-step', type=int, default=10)
-    parser.add_argument('--target-update-freq', type=int, default=1000)
+    parser.add_argument('--target-update-freq', type=int, default=1_000)
     parser.add_argument('--epoch', type=int, default=1_000_000)
-    parser.add_argument('--step-per-epoch', type=int, default=10000)
+    parser.add_argument('--step-per-epoch', type=int, default=1_000)
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
-    parser.add_argument('--batch-size', type=int, default=256)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256])
+    parser.add_argument('--batch-size', type=int, default=128)
+    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
     parser.add_argument('--training-num', type=int, default=10)
     parser.add_argument('--test-num', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
@@ -106,7 +106,8 @@ def get_agents(
                 optim,
                 args.gamma,
                 args.n_step,
-                target_update_freq=args.target_update_freq
+                target_update_freq=args.target_update_freq,
+                clip_loss_grad=True
             )
             agents.append(agent)
             optims.append(optim)

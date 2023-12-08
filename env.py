@@ -43,7 +43,7 @@ class LEOSATEnv(AECEnv):
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
 
-        self.GS_size = 10
+        self.GS_size = 30
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.shadow_fading = 0.5 # [dB]
@@ -53,7 +53,7 @@ class LEOSATEnv(AECEnv):
         self.timestep = None
         self.terminal_time = 155 # s
         
-        self.rate_threshold = 30_000_000 # 30 Mbps
+        self.rate_threshold = 1_000_000 # 1 Mbps
         self.rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
 
         self.HO_log = np.zeros((self.GS_size, self.terminal_time + 1))
@@ -107,15 +107,34 @@ class LEOSATEnv(AECEnv):
         self._none = self.SAT_len * self.SAT_plane
         self.action_spaces = {i: spaces.Discrete(self.SAT_len * self.SAT_plane) for i in self.agents}
         self.observation_spaces = {
-            i: spaces.Dict(
+            name: spaces.Dict(
                 {
                     "observation": spaces.Box(
-                        low=0, high=1, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.int8
+                        low=0, high=1e13, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.float64
+                    ),
+                    "action_mask": spaces.Box(
+                        low=0, high=1, shape=(self.SAT_len * self.SAT_plane,), dtype=np.int8
                     ),
                 }
             )
-            for i in self.agents
+            for name in self.agents
         }
+        # self.observation_spaces = {
+        #     i: spaces.Box(
+        #                 low=0, high=1e13, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.float64
+        #         )
+        #     for i in self.agents
+        # }
+        # self.observation_spaces = {
+        #     i: spaces.Dict(
+        #         {
+        #             "observation": spaces.Box(
+        #                 low=0, high=1e13, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.float64
+        #             ),
+        #         }
+        #     )
+        #     for i in self.agents
+        #}
         #|------Debugging args-----------------------------------------------------------------------------------------------------------------------|
         self.render_mode = render_mode        
         self.debugging = debugging
@@ -261,15 +280,16 @@ class LEOSATEnv(AECEnv):
         coverage_indicator[coverage_index[:][0], coverage_index[:][1]] = 1
         return coverage_indicator        
 
-    def _get_visible_time(self, SAT_point, SAT_speed, coverage_radius, GS):
+    def _get_visible_time(self):
         """
         return visible time btw SAT and GS
         """
-        _num = np.max((coverage_radius ** 2 - (GS[1]-SAT_point[1]) ** 2, 0))
-        visible_time = (np.sqrt(_num) - GS[0] + SAT_point[0]) / SAT_speed
-        visible_time = np.max((visible_time, 0))
-        visible_time = 0 if visible_time >= 14 else visible_time
-        return visible_time        
+        self.visible_time = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
+        for i in range(self.GS_size):
+            for j in range(self.SAT_len * self.SAT_plane):
+                if self.coverage_indicator[i][j] == 1:
+                    dist = np.sqrt( (self.GS[i][0]-self.SAT_point[j][0])**2 + (self.GS[i][1]-self.SAT_point[j][1])**2 )
+                    self.visible_time[i][j] = dist / self.SAT_speed     
 
     def _cal_shadowed_rice_fading_gain(self):
         self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
@@ -369,10 +389,7 @@ class LEOSATEnv(AECEnv):
         # coverage indicator
         self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
         # visible time
-        self.visible_time = np.zeros((self.GS_size,self.SAT_len*2))
-        for i in range(self.GS_size):
-            for j in range(self.SAT_len*2):
-                self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
+        self._get_visible_time()
         # Update channel gain
         self.channel_gain = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         # Update data rate
@@ -383,11 +400,11 @@ class LEOSATEnv(AECEnv):
         # observations
         self.observations = {}
         for i in range(self.GS_size):
-            observation = (
+            observation = [
                 self.coverage_indicator[i],
                 self.visible_time[i],                
                 self.data_rate[i]
-            )
+            ]
             self.observations[self.agents[i]] = observation
         
         # logs
@@ -400,8 +417,14 @@ class LEOSATEnv(AECEnv):
         #return self.observations
     
     def observe(self, agent):
-        # observation of one agent is the previous state of the other
-        return np.array(self.observations[agent])
+        gs_idx = int(agent[-1])
+        
+        ## coverage 내부에서만 선택하도록 만듦
+        action_mask = np.zeros(self.SAT_len*self.SAT_plane)
+        for i in range(self.SAT_len*self.SAT_plane):
+            if self.coverage_indicator[gs_idx,i] == 1:
+                action_mask[i] = 1
+        return {"observation": self.observations[agent], "action_mask": action_mask}
 
     def step(self, action):
         if (
@@ -433,10 +456,7 @@ class LEOSATEnv(AECEnv):
             self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
             if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
             # visible time
-            self.visible_time = np.zeros((self.GS_size,self.SAT_len*2))
-            for i in range(self.GS_size):
-                for j in range(self.SAT_len*2):
-                    self.visible_time[i][j] = self._get_visible_time(self.SAT_point[j], self.SAT_speed, self.SAT_coverage_radius, self.GS[i])
+            self._get_visible_time()
             # Update load info
             _actions = np.array(list(self.states.values()))
             self._update_load_SAT(_actions)
@@ -453,7 +473,9 @@ class LEOSATEnv(AECEnv):
                     self.data_rate[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
-                
+                if self.debugging:
+                    print(f'observation!! :{self.observations[f"groud_station_{i}"]}')
+                    print(f"actions: {self.action_spaces[f'groud_station_{i}']}")
                 # 선택한 위성의 data rate log 저장
                 self.rate_data_log[i, self.timestep] =  self.data_rate[i, _actions[i]]
                 # HO시도 -> HO 횟수로 취급
@@ -546,7 +568,7 @@ class LEOSATEnv(AECEnv):
 
                 # HOF-non service SAT
                 if self.coverage_indicator[i][_actions[i]] == 0:
-                    reward = -50
+                    reward = -15
                     self.agent_status_log[i][self.timestep] = 1
                     self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                     self.rewards[self.agents[i]] = reward
@@ -555,24 +577,24 @@ class LEOSATEnv(AECEnv):
                 elif _service_indicator[i][_actions[i]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -8
+                        reward = -10
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                         self.rewards[self.agents[i]] = reward
                     # HO cost
                     else:
-                        reward = -5
+                        reward = -8
                         self.agent_status_log[i][self.timestep] = 3
                         self.rewards[self.agents[i]] = reward
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -8
+                        reward = -10
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                         self.rewards[self.agents[i]] = reward
                     else:
-                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((10, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
+                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((20, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
                         self.agent_status_log[i][self.timestep] = 4
                         if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i][_actions[i]]}, Visble time {self.visible_time[i, _actions[i]]}, reawrd: {reward}")
                         self.rewards[self.agents[i]] = reward

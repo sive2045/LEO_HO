@@ -17,8 +17,8 @@ from env import LEOSATEnv
 
 if __name__ == "__main__":
     # Step 1: Load the PettingZoo environment (selecte rendoer_mode)
-    #env = LEOSATEnv(render_mode="human", debugging=True, interference_mode=True)
-    env = LEOSATEnv(debugging=True, interference_mode=True)
+    env = LEOSATEnv(render_mode="human", debugging=True, interference_mode=True)
+    #env = LEOSATEnv(debugging=True, interference_mode=True)
 
     # Step 2: Wrap the environment for Tianshou interfacing
     env = PettingZooEnv(env)
@@ -31,21 +31,22 @@ if __name__ == "__main__":
     ) else env.observation_space
     state_shape = observation_space.shape or observation_space.n
     action_shape = env.action_space.shape or env.action_space.n
-    for _ in range(10): 
+    for _ in range(30): 
         # model
         net = Net(
             state_shape,
             action_shape,
-            hidden_sizes=[256, 256, 256, 256],
+            hidden_sizes=[256, 256,  256],
             device='cuda'
         ).to('cuda')
         optim = torch.optim.Adam(net.parameters(), lr=0.001)
         agent = DQNPolicy(
             net,
             optim,
-            0.9,
+            0.65,
             10,
-            target_update_freq=1000
+            target_update_freq=1000,
+            clip_loss_grad=True
         )
         agents.append(agent)
 

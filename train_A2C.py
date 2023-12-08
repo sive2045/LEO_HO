@@ -1,234 +1,162 @@
-"""
-Train the agents.
-
-Use Algorithm: Asynchronous Methods for Deep Reinforcement Learning, arXiv:1602.01783.
-Type: Multi-Agent
-"""
-
-
 import argparse
 import os
-import warnings
-from typing import List, Optional, Tuple
+import pprint
 
 import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.spaces import Box
 from torch.utils.tensorboard import SummaryWriter
 
 from tianshou.data import Collector, VectorReplayBuffer
-from tianshou.env import DummyVectorEnv
 from tianshou.env.pettingzoo_env import PettingZooEnv
-from tianshou.policy import BasePolicy, DQNPolicy, MultiAgentPolicyManager, A2CPolicy
-from tianshou.trainer import offpolicy_trainer, onpolicy_trainer
+from tianshou.env import DummyVectorEnv
+from tianshou.policy import PPOPolicy
+from tianshou.trainer import OnpolicyTrainer
 from tianshou.utils import TensorboardLogger
-from tianshou.utils.net.common import Net, ActorCritic
+from tianshou.utils.net.common import ActorCritic, DataParallelNet, Net
 from tianshou.utils.net.discrete import Actor, Critic
 
 from env import LEOSATEnv
 
-def get_parser() -> argparse.ArgumentParser:
+def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', type=int, default=1626)
-    parser.add_argument('--eps-test', type=float, default=0.05)
-    parser.add_argument('--eps-train', type=float, default=0.1)
-    parser.add_argument('--buffer-size', type=int, default=15600)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument("--reward-threshold", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=1626)
+    parser.add_argument("--buffer-size", type=int, default=1_000_000)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--epoch", type=int, default=10_000)
+    parser.add_argument("--step-per-epoch", type=int, default=10_000)
+    parser.add_argument("--step-per-collect", type=int, default=2_000)
+    parser.add_argument("--repeat-per-collect", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--hidden-sizes", type=int, nargs="*", default=[128, 128, 128])
+    parser.add_argument("--training-num", type=int, default=10)
+    parser.add_argument("--test-num", type=int, default=30)
+    parser.add_argument("--logdir", type=str, default="./log")
+    parser.add_argument("--render", type=float, default=0.0)
     parser.add_argument(
-        '--gamma', type=float, default=0.9, help='a smaller gamma favors earlier win'
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
     )
-    parser.add_argument('--debugging', type=bool, default=False)
-    parser.add_argument(
-        '--n-groudnstations',
-        type=int,
-        default=10,
-        help='Number of groudnstations(agents) in the env'
-    )
-    parser.add_argument('--n-step', type=int, default=10)
-    parser.add_argument('--target-update-freq', type=int, default=320)
-    parser.add_argument('--epoch', type=int, default=1_000)
-    parser.add_argument('--step-per-epoch', type=int, default=50000)
-    parser.add_argument('--il-step-per-epoch', type=int, default=1000)
-    parser.add_argument('--episode-per-collect', type=int, default=16)
-    parser.add_argument('--step-per-collect', type=int, default=16)
-    parser.add_argument('--update-per-step', type=float, default=1 / 16)
-    parser.add_argument('--repeat-per-collect', type=int, default=1)
-    parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256, 256])
-    parser.add_argument('--training-num', type=int, default=10)
-    parser.add_argument('--test-num', type=int, default=100)
-    parser.add_argument('--logdir', type=str, default='log')
-    parser.add_argument('--render', type=float, default=0.0)
-    parser.add_argument('--max-reward', type=float, default=14.5)
-    parser.add_argument(
-        '--watch',
-        default=False,
-        action='store_true',
-        help='no training, '
-        'watch the play of pre-trained models'
-    )
-    parser.add_argument(
-        '--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu'
-    )
-    # a2c special
-    parser.add_argument('--vf-coef', type=float, default=0.5)
-    parser.add_argument('--ent-coef', type=float, default=0.0)
-    parser.add_argument('--max-grad-norm', type=float, default=None)
-    parser.add_argument('--gae-lambda', type=float, default=1.)
-    parser.add_argument('--rew-norm', action="store_true", default=False)
-    return parser
-
-
-def get_args() -> argparse.Namespace:
-    parser = get_parser()
+    # ppo special
+    parser.add_argument("--vf-coef", type=float, default=0.5)
+    parser.add_argument("--ent-coef", type=float, default=0.0)
+    parser.add_argument("--eps-clip", type=float, default=0.2)
+    parser.add_argument("--max-grad-norm", type=float, default=0.5)
+    parser.add_argument("--gae-lambda", type=float, default=0.95)
+    parser.add_argument("--rew-norm", type=int, default=0)
+    parser.add_argument("--norm-adv", type=int, default=0)
+    parser.add_argument("--recompute-adv", type=int, default=0)
+    parser.add_argument("--dual-clip", type=float, default=None)
+    parser.add_argument("--value-clip", type=int, default=0)
     return parser.parse_known_args()[0]
 
+def get_env():
+    return PettingZooEnv(LEOSATEnv())
 
-def get_env(args: argparse.Namespace = get_args(), render_mode=None):
-    return PettingZooEnv(LEOSATEnv(render_mode=render_mode, debugging=args.debugging))
-
-
-def get_agents(
-    args: argparse.Namespace = get_args(),
-    agents: Optional[List[BasePolicy]] = None,
-    optims: Optional[List[torch.optim.Optimizer]] = None,
-) -> Tuple[BasePolicy, List[torch.optim.Optimizer], List]:
+def test_ppo(args=get_args()):
     env = get_env()
     observation_space = env.observation_space['observation'] if isinstance(
         env.observation_space, gym.spaces.Dict
     ) else env.observation_space
+    print(f"observation space: {observation_space}")
     args.state_shape = observation_space.shape or observation_space.n
-    args.action_shape = env.action_space.shape or env.action_space.n
-    if agents is None:
-        agents = []
-        optims = []
-        for _ in range(args.n_groudnstations): 
-            # Model
-            net = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
-            actor = Actor(net, args.action_shape, device=args.device).to(args.device)
-            critic = Critic(net, device=args.device).to(args.device)
-            optim = torch.optim.Adam(ActorCritic(actor, critic).parameters(), lr=args.lr)
-            dist = torch.distributions.Categorical            
-            agent = A2CPolicy(
-                actor=actor,
-                critic=critic,
-                optim=optim,
-                dist_fn=dist,
-                discount_factor=args.gamma,
-                gae_lambda=args.gae_lambda,
-                vf_coef=args.vf_coef,
-                ent_coef=args.ent_coef,
-                max_grad_norm=args.max_grad_norm,
-                reward_normalization=args.rew_norm,
-                action_space=env.action_space,
-            )
-            agents.append(agent)
-            optims.append(optim)
+    args.action_shape = env.action_space.shape or env.action_space.n    
+    args.reward_threshold = 155*12
 
-    policy = MultiAgentPolicyManager(agents, env)
-    return policy, optims, env.agents
-
-
-def train_agent(
-    args: argparse.Namespace = get_args(),
-    agents: Optional[List[BasePolicy]] = None,
-    optims: Optional[List[torch.optim.Optimizer]] = None,
-) -> Tuple[dict, BasePolicy]:
+    # you can also use tianshou.env.SubprocVectorEnv
     train_envs = DummyVectorEnv([get_env for _ in range(args.training_num)])
-    test_envs = DummyVectorEnv([get_env for _ in range(args.test_num)])
+    # test_envs = gym.make(args.task)
+    test_envs =DummyVectorEnv([get_env for _ in range(args.test_num)])
     # seed
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     train_envs.seed(args.seed)
     test_envs.seed(args.seed)
-
-    policy, optim, agents = get_agents(args, agents=agents, optims=optims)
-
+    # model
+    net = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+    if torch.cuda.is_available():
+        actor = DataParallelNet(Actor(net, args.action_shape, device=None).to(args.device))
+        critic = DataParallelNet(Critic(net, device=None).to(args.device))
+    else:
+        actor = Actor(net, args.action_shape, device=args.device).to(args.device)
+        critic = Critic(net, device=args.device).to(args.device)
+    actor_critic = ActorCritic(actor, critic)
+    # orthogonal initialization
+    for m in actor_critic.modules():
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.orthogonal_(m.weight)
+            torch.nn.init.zeros_(m.bias)
+    optim = torch.optim.Adam(actor_critic.parameters(), lr=args.lr)
+    dist = torch.distributions.Categorical
+    policy = PPOPolicy(
+        actor=actor,
+        critic=critic,
+        optim=optim,
+        dist_fn=dist,
+        action_scaling=isinstance(env.action_space, Box),
+        discount_factor=args.gamma,
+        max_grad_norm=args.max_grad_norm,
+        eps_clip=args.eps_clip,
+        vf_coef=args.vf_coef,
+        ent_coef=args.ent_coef,
+        gae_lambda=args.gae_lambda,
+        reward_normalization=args.rew_norm,
+        dual_clip=args.dual_clip,
+        value_clip=args.value_clip,
+        action_space=env.action_space,
+        deterministic_eval=True,
+        advantage_normalization=args.norm_adv,
+        recompute_advantage=args.recompute_adv,
+    )
     # collector
     train_collector = Collector(
         policy,
         train_envs,
         VectorReplayBuffer(args.buffer_size, len(train_envs)),
-        exploration_noise=True
     )
-    test_collector = Collector(policy, test_envs, exploration_noise=True)
-    train_collector.collect(n_step=args.batch_size * args.training_num)
+    test_collector = Collector(policy, test_envs)
     # log
-    log_path = os.path.join(args.logdir, 'LEO', 'A2C')
+    log_path = os.path.join(args.logdir, 'LEO_HO', "ppo")
     writer = SummaryWriter(log_path)
-    writer.add_text("args", str(args))
     logger = TensorboardLogger(writer)
 
-    # ======== callback functions used during training =========
     def save_best_fn(policy):
-        if hasattr(args, "model_save_path"):            # 조건문 수정해야함.
-            model_save_path = args.model_save_path
-        else:
-            model_save_path = os.path.join(
-                args.logdir, "LEO", "A2C", "policy.pth"
-            )
-        for i in range(args.n_groudnstations):
-            model_save_path = os.path.join(
-                args.logdir, "LEO", "A2C", f"policy{i}.pth"
-            )
-            torch.save(
-                policy.policies[agents[i]].state_dict(), model_save_path # 인덱스 주의
-        )
+        torch.save(policy.state_dict(), os.path.join(log_path, "policy.pth"))
 
-    def stop_fn(mean_rewards): 
-        return mean_rewards > args.max_reward
-
-    def train_fn(epoch, env_step):
-        [agent.set_eps(args.eps_train) for agent in policy.policies.values()]
-
-    def test_fn(epoch, env_step):
-        [agent.set_eps(args.eps_test) for agent in policy.policies.values()]
-
-    def reward_metric(rews):
-        return rews[:, 0]
+    def stop_fn(mean_rewards):
+        return mean_rewards >= args.reward_threshold
 
     # trainer
-    result = onpolicy_trainer(
-        policy,
-        train_collector,
-        test_collector,
-        args.epoch,
-        args.step_per_epoch,
-        args.repeat_per_collect,
-        args.test_num,
-        args.batch_size,
-        episode_per_collect=args.episode_per_collect,
-        train_fn=train_fn,
-        test_fn=test_fn,
+    result = OnpolicyTrainer(
+        policy=policy,
+        train_collector=train_collector,
+        test_collector=test_collector,
+        max_epoch=args.epoch,
+        step_per_epoch=args.step_per_epoch,
+        repeat_per_collect=args.repeat_per_collect,
+        episode_per_test=args.test_num,
+        batch_size=args.batch_size,
+        step_per_collect=args.step_per_collect,
         stop_fn=stop_fn,
         save_best_fn=save_best_fn,
-        reward_metric=reward_metric,
         logger=logger,
-        test_in_train=False,
-    )
+    ).run()
+    assert stop_fn(result["best_reward"])
 
-    return result, policy
+    if __name__ == "__main__":
+        pprint.pprint(result)
+        # Let's watch its performance!
+        env = gym.make(args.task)
+        policy.eval()
+        collector = Collector(policy, env)
+        result = collector.collect(n_episode=1, render=args.render)
+        rews, lens = result["rews"], result["lens"]
+        print(f"Final reward: {rews.mean()}, length: {lens.mean()}")
 
-
-def watch(
-    args: argparse.Namespace = get_args(), policy: Optional[BasePolicy] = None
-) -> None:
-    env = DummyVectorEnv([get_env])
-    if not policy:
-        warnings.warn(
-            "watching random agents, as loading pre-trained policies is "
-            "currently not supported"
-        )
-        policy, _, _ = get_agents(args)
-    policy.eval()
-    [agent.set_eps(args.eps_test) for agent in policy.policies.values()]
-    collector = Collector(policy, env, exploration_noise=True)
-    result = collector.collect(n_episode=1, render=False)
-    rews, lens = result["rews"], result["lens"]
-    print(f"Final reward: {rews[:, 0].mean()}, length: {lens.mean()}")
 
 if __name__ == "__main__":
-    # train the agent and watch its performance in a match!
-    args = get_args()
-    result, agent = train_agent(args)
-    watch(args, agent)
+    test_ppo()
