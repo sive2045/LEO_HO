@@ -43,7 +43,7 @@ class LEOSATEnv(AECEnv):
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
 
-        self.GS_size = 30
+        self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.shadow_fading = 0.5 # [dB]
@@ -419,11 +419,25 @@ class LEOSATEnv(AECEnv):
     def observe(self, agent):
         gs_idx = int(agent[-1])
         
+        if gs_idx == 0:
+            '''
+            coverage indicator update는 여기서 이뤄짐
+            agent_#->observe agent_#->,,, 순이라
+            last agent일때 업데이트 하면 해당 coverage가 반영이 안됨 << action mask 관련 설정임
+            '''
+            # Update SAT position
+            self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
+            # Update GS position
+            self.GS = self._GS_random_walk(self.GS, self.GS_speed)        
+            # Update coverage indicator
+            self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)            
+
         ## coverage 내부에서만 선택하도록 만듦
         action_mask = np.zeros(self.SAT_len*self.SAT_plane)
         for i in range(self.SAT_len*self.SAT_plane):
             if self.coverage_indicator[gs_idx,i] == 1:
                 action_mask[i] = 1
+        if self.debugging: print(f"{self.timestep}-th, observe func !! {action_mask}")
         return {"observation": self.observations[agent], "action_mask": action_mask}
 
     def step(self, action):
@@ -447,14 +461,14 @@ class LEOSATEnv(AECEnv):
             self.service_indicator = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane))
             for i in range(self.GS_size):
                 self.service_indicator[i][self.states[self.agents[i]]] = 1
-            # Update SAT position
-            self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
-            # Update GS position
-            self.GS = self._GS_random_walk(self.GS, self.GS_speed)
-            if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
-            # Update coverage indicator
-            self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
-            if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
+            # # Update SAT position
+            # self.SAT_point = self._SAT_coordinate(self.SAT_point, self.SAT_len, self.timestep, self.SAT_speed)
+            # # Update GS position
+            # self.GS = self._GS_random_walk(self.GS, self.GS_speed)
+            # if self.debugging:  print(f"timestep:{self.timestep}, agent poistion: {self.GS}")            
+            # # Update coverage indicator
+            # self.coverage_indicator = self._is_in_coverage(self.SAT_point, self.GS, self.SAT_coverage_radius)
+            # if self.debugging: print(f"coverage indicator {self.coverage_indicator}")
             # visible time
             self._get_visible_time()
             # Update load info
