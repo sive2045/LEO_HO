@@ -53,7 +53,7 @@ class LEOSATEnv(AECEnv):
         self.timestep = None
         self.terminal_time = 155 # s
         
-        self.rate_threshold = 1_000_000 # 1 Mbps
+        self.rate_threshold = 10_000_000 # 10 Mbps
         self.rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
 
         self.HO_log = np.zeros((self.GS_size, self.terminal_time + 1))
@@ -521,13 +521,10 @@ class LEOSATEnv(AECEnv):
                     print(f"{self.timestep}-time step, {i}-th agent info: channel-gain-based: {self.channel_based_service_index[i]}")
                     # MVT
                     self.MVT_data_rate_log[i, self.timestep] = MVT_data_rate[i, self.MVT_service_index[i]]
-                    if self.coverage_indicator[i][self.MVT_service_index[i]] == 0 or MVT_data_rate[i, self.MVT_service_index[i]] < self.rate_threshold:
-                        idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]
-                        
+                    idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]                    
+                    if idx !=  self.MVT_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
-                        if idx !=  self.MVT_service_index[i]: 
-                            self.MVT_HO_log[i][self.timestep] = 1
-
+                        self.MVT_HO_log[i][self.timestep] = 1                    
                         # HOF: QoS
                         if MVT_data_rate[i, idx] < self.rate_threshold:
                             self.MVT_status_log[i][self.timestep] = 2
@@ -540,12 +537,11 @@ class LEOSATEnv(AECEnv):
                     
                     # RANDOM
                     self.random_data_rate_log[i, self.timestep] = random_data_rate[i, self.random_service_index[i]]
-                    if self.coverage_indicator[i][self.random_service_index[i]] == 0 or random_data_rate[i, self.random_service_index[i]] < self.rate_threshold:
-                        idx = np.random.randint(0, self.SAT_len*self.SAT_plane)
+                    idx = np.random.randint(0, self.SAT_len*self.SAT_plane)                    
+                    if idx !=  self.random_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
-                        if idx !=  self.random_service_index[i]: 
-                            self.ramdon_HO_log[i][self.timestep] = 1
-                        
+                        self.ramdon_HO_log[i][self.timestep] = 1
+                    
                         if self.coverage_indicator[i][idx] == 0:
                             self.random_status_log[i][self.timestep] = 1
                         elif random_data_rate[i, idx] < self.rate_threshold:
@@ -559,11 +555,10 @@ class LEOSATEnv(AECEnv):
 
                     # channel gain-based
                     self.channel_based_data_rate_log[i, self.timestep] = channle_gain_based_data_rate[i, self.channel_based_service_index[i]]
-                    if self.coverage_indicator[i][self.channel_based_service_index[i]] == 0 or channle_gain_based_data_rate[i, self.channel_based_service_index[i]] < self.rate_threshold:
-                        idx = np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0]
+                    idx = np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0]                    
+                    if idx !=  self.channel_based_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
-                        if idx !=  self.channel_based_service_index[i]: 
-                            self.CG_HO_log[i][self.timestep] = 1
+                        self.CG_HO_log[i][self.timestep] = 1
                         
                         # HOF: non-coverage area
                         if self.coverage_indicator[i][idx] == 0:
