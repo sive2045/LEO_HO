@@ -704,6 +704,22 @@ class LEOSATEnv(AECEnv):
         print(f"CG-based episode MAX data rate:{np.max(self.channel_based_data_rate_log)}")
         print(f"CG-based episode average data rate:{CG_based_rate/self.GS_size}")
 
+        # average througput
+        plt.figure(0)
+        MADRL_data_rate = self.rate_data_log.mean(axis=0)
+        moving_MADRL_data_rate = np.convolve(MADRL_data_rate, np.ones(10), 'valid')/10
+        MVT_data_rate = self.MVT_data_rate_log.mean(axis=0)
+        moving_MVT_data_rate = np.convolve(MVT_data_rate, np.ones(10), 'valid')/10
+        Ranmdom_data_rate = self.random_data_rate_log.mean(axis=0)
+        moving_Ranmdom_data_rat = np.convolve(Ranmdom_data_rate, np.ones(10), 'valid')/10
+
+        time_step = np.arange(self.terminal_time-9); interval = 15 # mark interveal
+        plt.plot(time_step, moving_MADRL_data_rate[1:], label='MADQN', marker='*', markevery=interval)
+        plt.plot(time_step, moving_MVT_data_rate[1:], label='MVT', marker='.', markevery=interval)        
+        plt.plot(time_step, moving_Ranmdom_data_rat[1:], label='Random', marker='|', markevery=interval)
+        plt.xlim((1,145))
+        plt.ylabel("Average throughput"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
+
         # Plot Agents' Status
         plt.figure(1)
         agents = np.arange(0,self.GS_size)
