@@ -32,9 +32,9 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--eps-test', type=float, default=0.05)
     parser.add_argument('--eps-train', type=float, default=0.1)
     parser.add_argument('--buffer-size', type=int, default=10_000_000)
-    parser.add_argument('--lr', type=float, default=5e-3)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument(
-        '--gamma', type=float, default=0.8, help='a smaller gamma favors earlier win'
+        '--gamma', type=float, default=0.9, help='a smaller gamma favors earlier win'
     )
     parser.add_argument('--debugging', type=bool, default=False)
     parser.add_argument(
