@@ -79,8 +79,8 @@ class LEOSATEnv(AECEnv):
         self.GNSS_noise = 1 # 수정 예정
         self.anttena_gain = 1_000
         
-        self.visible_time_weight = 0.1
-        self.rate_weight = 10**(-7)
+        self.visible_time_weight = 0.5
+        self.rate_weight = 2*(10**(-7))
 
         self.SINR_weight = 1 # SINR reward weight
         self.load_weight = 1 # Remaining load reward weight
@@ -110,7 +110,7 @@ class LEOSATEnv(AECEnv):
             name: spaces.Dict(
                 {
                     "observation": spaces.Box(
-                        low=0, high=1e13, shape=(3, self.SAT_len * self.SAT_plane), dtype=np.float64
+                        low=0, high=1e13, shape=(4, self.SAT_len * self.SAT_plane), dtype=np.float64
                     ),
                     "action_mask": spaces.Box(
                         low=0, high=1, shape=(self.SAT_len * self.SAT_plane,), dtype=np.int8
@@ -402,7 +402,8 @@ class LEOSATEnv(AECEnv):
         for i in range(self.GS_size):
             observation = [
                 self.coverage_indicator[i],
-                self.visible_time[i],                
+                self.visible_time[i],
+                self.channel_gain[i],          
                 self.data_rate[i]
             ]
             self.observations[self.agents[i]] = observation
@@ -484,6 +485,7 @@ class LEOSATEnv(AECEnv):
                 observation = (
                     self.coverage_indicator[i],
                     self.visible_time[i],
+                    self.channel_gain[i],  
                     self.data_rate[i]
                 )
                 self.observations[f"groud_station_{i}"] = observation
@@ -625,7 +627,7 @@ class LEOSATEnv(AECEnv):
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                         self.rewards[self.agents[i]] = reward
                     else:
-                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((20, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
+                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((30, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
                         self.agent_status_log[i][self.timestep] = 4
                         if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i][_actions[i]]}, Visble time {self.visible_time[i, _actions[i]]}, reawrd: {reward}")
                         self.rewards[self.agents[i]] = reward

@@ -39,7 +39,7 @@ if __name__ == "__main__":
             hidden_sizes=[256, 256,  256],
             device='cuda'
         ).to('cuda')
-        optim = torch.optim.Adam(net.parameters(), lr=0.005)
+        optim = torch.optim.Adam(net.parameters(), lr=1e-3)
         agent = DQNPolicy(
             net,
             optim,
