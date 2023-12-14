@@ -344,7 +344,7 @@ class LEOSATEnv(AECEnv):
         '''
         self.SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
-            self.SAT_Load[i, actions[i]] += 1
+            self.SAT_Load[:, actions[i]] += 1
     
     def _update_benchmark_load_info(self, actions):
         '''
@@ -352,7 +352,7 @@ class LEOSATEnv(AECEnv):
         '''
         SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
         for i in range(self.GS_size):
-            SAT_Load[i, actions[i]] += 1
+            SAT_Load[:, actions[i]] += 1
         return SAT_Load
     
     # load 정보 update 이상함?
@@ -417,7 +417,7 @@ class LEOSATEnv(AECEnv):
         #return self.observations
     
     def observe(self, agent):
-        gs_idx = int(agent[-1])
+        gs_idx = int(agent.split('_')[-1])
         
         if gs_idx == 0:
             '''
@@ -506,6 +506,9 @@ class LEOSATEnv(AECEnv):
                 MVT_load_info = self._update_benchmark_load_info(self.MVT_service_index)
                 random_load_info = self._update_benchmark_load_info(self.random_service_index)
                 channle_based_load_info = self._update_benchmark_load_info(self.channel_based_service_index)
+                print(f"MVT_load_info: {MVT_load_info}")
+                print(f"random_load_info: {random_load_info}")
+                print(f"channle_based_load_info: {channle_based_load_info}")
 
                 # get data rate
                 MVT_data_rate = self._cal_data_rate(MVT_load_info)
@@ -527,6 +530,7 @@ class LEOSATEnv(AECEnv):
                         self.MVT_HO_log[i][self.timestep] = 1                    
                         # HOF: QoS
                         if MVT_data_rate[i, idx] < self.rate_threshold:
+                            self.MVT_service_index[i] = -1
                             self.MVT_status_log[i][self.timestep] = 2
                         # HO
                         else:
@@ -535,6 +539,7 @@ class LEOSATEnv(AECEnv):
                     else:
                         # Comm F: QoS
                         if MVT_data_rate[i, idx] < self.rate_threshold:
+                            self.MVT_service_index[i] = -1
                             self.MVT_status_log[i][self.timestep] = 2
                         else: 
                             self.MVT_status_log[i][self.timestep] = 4
@@ -547,8 +552,10 @@ class LEOSATEnv(AECEnv):
                         self.ramdon_HO_log[i][self.timestep] = 1
                     
                         if self.coverage_indicator[i][idx] == 0:
+                            self.random_service_index[i] = -1
                             self.random_status_log[i][self.timestep] = 1
                         elif random_data_rate[i, idx] < self.rate_threshold:
+                            self.random_service_index[i] = -1
                             self.random_status_log[i][self.timestep] = 2
                         # HO
                         else:
@@ -556,6 +563,7 @@ class LEOSATEnv(AECEnv):
                             self.random_status_log[i][self.timestep] = 3
                     else:
                         if random_data_rate[i, idx] < self.rate_threshold:
+                            self.random_service_index[i] = -1
                             self.random_status_log[i][self.timestep] = 2
                         else:
                             self.random_status_log[i][self.timestep] = 4
@@ -569,9 +577,11 @@ class LEOSATEnv(AECEnv):
                         
                         # HOF: non-coverage area
                         if self.coverage_indicator[i][idx] == 0:
+                            self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 1
                         # HOF: QoS
                         elif channle_gain_based_data_rate[i, idx] < self.rate_threshold:
+                            self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 2
                         # HO
                         else:
@@ -580,6 +590,7 @@ class LEOSATEnv(AECEnv):
                     else:
                         # HOF: QoS
                         if channle_gain_based_data_rate[i, idx] < self.rate_threshold:
+                            self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 2
                         else:
                             self.channel_based_status_log[i][self.timestep] = 4                        
@@ -710,15 +721,18 @@ class LEOSATEnv(AECEnv):
         moving_MADRL_data_rate = np.convolve(MADRL_data_rate, np.ones(10), 'valid')/10
         MVT_data_rate = self.MVT_data_rate_log.mean(axis=0)
         moving_MVT_data_rate = np.convolve(MVT_data_rate, np.ones(10), 'valid')/10
+        CG_data_rate = self.channel_based_data_rate_log.mean(axis=0)
+        moving_CG_data_rate = np.convolve(CG_data_rate, np.ones(10), 'valid')/10
         Ranmdom_data_rate = self.random_data_rate_log.mean(axis=0)
         moving_Ranmdom_data_rat = np.convolve(Ranmdom_data_rate, np.ones(10), 'valid')/10
 
-        time_step = np.arange(self.terminal_time-9); interval = 15 # mark interveal
+        time_step = np.arange(self.terminal_time-9); interval = 10 # mark interveal
         plt.plot(time_step, moving_MADRL_data_rate[1:], label='MADQN', marker='*', markevery=interval)
         plt.plot(time_step, moving_MVT_data_rate[1:], label='MVT', marker='.', markevery=interval)        
+        plt.plot(time_step, moving_CG_data_rate[1:], label='MAX-CG', marker='P', markevery=interval)        
         plt.plot(time_step, moving_Ranmdom_data_rat[1:], label='Random', marker='|', markevery=interval)
         plt.xlim((1,145))
-        plt.ylabel("Average throughput"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
+        plt.ylabel("Moving average throughput"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
 
         # Plot Agents' Status
         plt.figure(1)
@@ -797,8 +811,8 @@ class LEOSATEnv(AECEnv):
         bar_width = 0.1
         status_1 = plt.bar(agents, _status[:,3], bar_width, label='MADQN')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,3], bar_width, label='MVT')
+        status_4 = plt.bar(agents + 3*bar_width, channel_based_status[:,3], bar_width, label='MAX-CG')
         status_3 = plt.bar(agents + 2*bar_width, Random_status[:,3], bar_width, label='Random')
-        # status_4 = plt.bar(agents + 3*bar_width, channel_based_status[:,3], bar_width, label='MAX-CG')
         plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
         plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
 
@@ -807,7 +821,7 @@ class LEOSATEnv(AECEnv):
         HO_MADQN = np.zeros((self.terminal_time+1))
         HO_MVT   = np.zeros((self.terminal_time+1))
         HO_RANDOM   = np.zeros((self.terminal_time+1))
-        #HO_CG = np.zeros((self.terminal_time+1))
+        HO_CG = np.zeros((self.terminal_time+1))
         for agent in range(self.GS_size):
             for t in range(self.terminal_time+1):
                 if self.HO_log[agent][t]:
@@ -816,13 +830,13 @@ class LEOSATEnv(AECEnv):
                     HO_MVT[t:] += 1
                 if self.ramdon_HO_log[agent][t]:
                     HO_RANDOM[t:] += 1
-                #if self.CG_HO_log[agent][t]:
-                #    HO_CG[t:] += 1
+                if self.CG_HO_log[agent][t]:
+                    HO_CG[t:] += 1
         
         HO_MADQN[:] /= self.GS_size
         HO_MVT[:] /= self.GS_size
         HO_RANDOM[:] /= self.GS_size
-        #HO_CG[:] /= self.GS_size
+        HO_CG[:] /= self.GS_size
         time_step = np.arange(self.terminal_time)
         interval = 15 # mark interveal
 
@@ -830,9 +844,10 @@ class LEOSATEnv(AECEnv):
 
         plt.plot(time_step, HO_MVT[1:], label='MVT', marker='.', markevery=interval)        
 
-        plt.plot(time_step, HO_RANDOM[1:], label='Random', marker='|', markevery=interval)
+        plt.plot(time_step, HO_CG[1:], label='MAX-CG', marker='P', markevery=interval)
 
-        #plt.plot(time_step, HO_CG[1:], label='MAX-CG', marker='P', markevery=interval)
+
+        plt.plot(time_step, HO_RANDOM[1:], label='Random', marker='|', markevery=interval)
 
         plt.xlim((1,155))
         plt.ylabel('Average handover'); plt.legend(); plt.xlabel('time step'); plt.grid()
@@ -894,7 +909,7 @@ class LEOSATEnv(AECEnv):
         print(f"MADQN average HO: {HO_MADQN[-1]}")
         print(f"MVT average HO: {HO_MVT[-1]}")
         print(f"RANDOM average HO: {HO_RANDOM[-1]}")
-        #print(f"MAX CG average HO: {HO_CG[-1]}")
+        print(f"MAX CG average HO: {HO_CG[-1]}")
 
         print(f"MADQN average HOF rate: {HOF_MADQN[-1]}")
         print(f"MVT average HOF rate: {HOF_MVT[-1]}")
