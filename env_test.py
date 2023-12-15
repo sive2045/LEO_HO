@@ -36,7 +36,7 @@ if __name__ == "__main__":
         net = Net(
             state_shape,
             action_shape,
-            hidden_sizes=[256, 256,  256],
+            hidden_sizes=[256, 256,  256, 256],
             device='cuda'
         ).to('cuda')
         optim = torch.optim.Adam(net.parameters(), lr=1e-3)
