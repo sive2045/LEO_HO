@@ -40,7 +40,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--n-groundstations',
         type=int,
-        default=10,
+        default=40,
         help='Number of groudnstations(agents) in the env'
     )
     parser.add_argument('--n-step', type=int, default=10)
