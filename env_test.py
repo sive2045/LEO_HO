@@ -23,6 +23,8 @@ if __name__ == "__main__":
     # Step 2: Wrap the environment for Tianshou interfacing
     env = PettingZooEnv(env)
 
+    agent_szie = 40
+
     # Step 3: Define policies for each agent -> Random policies
     #agents = [RandomPolicy()] * 10
     agents = []
@@ -31,7 +33,7 @@ if __name__ == "__main__":
     ) else env.observation_space
     state_shape = observation_space.shape or observation_space.n
     action_shape = env.action_space.shape or env.action_space.n
-    for _ in range(10): 
+    for _ in range(agent_szie): 
         # model
         net = Net(
             state_shape,
@@ -39,18 +41,18 @@ if __name__ == "__main__":
             hidden_sizes=[256, 256,  256],
             device='cuda'
         ).to('cuda')
-        optim = torch.optim.Adam(net.parameters(), lr=1e-2)
+        optim = torch.optim.Adam(net.parameters(), lr=5e-2)
         agent = DQNPolicy(
             net,
             optim,
-            0.5,
+            0.9,
             10,
             target_update_freq=1000,
             clip_loss_grad=True
         )
         agents.append(agent)
 
-    for i in range(10):
+    for i in range(agent_szie):
         agents[i].load_state_dict(torch.load(f"./log/policy{i}.pth"))
     policies = MultiAgentPolicyManager(agents, env)
 

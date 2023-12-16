@@ -43,7 +43,7 @@ class LEOSATEnv(AECEnv):
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
 
-        self.GS_size = 10
+        self.GS_size = 40
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.shadow_fading = 0.5 # [dB]
@@ -53,7 +53,7 @@ class LEOSATEnv(AECEnv):
         self.timestep = None
         self.terminal_time = 155 # s
         
-        self.rate_threshold = 1_000_000 # bps
+        self.rate_threshold = 10_000_000 # bps
         self.rate_data_log = np.zeros((self.GS_size, self.terminal_time + 1))
 
         self.HO_log = np.zeros((self.GS_size, self.terminal_time + 1))
@@ -363,8 +363,8 @@ class LEOSATEnv(AECEnv):
         벤치마킹 load 정보 업데이트
         '''
         SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
-        for i in range(self.GS_size):
-            SAT_Load[:, actions[i]] += 1
+        for i in range(self.GS_size):            
+            SAT_Load[:, int(actions[i])] += 1
         return SAT_Load
     
     # load 정보 update 이상함?
@@ -466,7 +466,7 @@ class LEOSATEnv(AECEnv):
                 FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[gs_idx] - self.SAT_point[i]))) ** 2
                 signal_power = self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[gs_idx][i]
                 tmp_data_rate = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + (self.SAT_BW)* 4*(10**(-21)) )) )
-                if tmp_data_rate >= self.rate_threshold + 1_500_000:
+                if tmp_data_rate >= self.rate_threshold + 5_000_000:
                     action_mask[i] = 1
         if self.debugging: print(f"{self.timestep}-th, observe func !! {action_mask}")
         return {"observation": self.observations[agent]['observation'], "action_mask": action_mask}
@@ -540,10 +540,19 @@ class LEOSATEnv(AECEnv):
                 channle_gain_based_data_rate = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
                 max_available_channel_data_rate = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane))
 
+                # selected index
+                MVT_tmp_index = np.zeros((self.GS_size), dtype=int)
+                MAX_CG_index = np.zeros((self.GS_size), dtype=int)
+                random_tmp_index = np.zeros((self.GS_size), dtype=int)
+                for i in range(self.GS_size):
+                    MVT_tmp_index[i] = int(np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0])
+                    random_tmp_index[i] = int(np.random.randint(0, self.SAT_len*self.SAT_plane))
+                    MAX_CG_index[i] = int(np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0])
+
                 # get load info
-                MVT_load_info = self._update_benchmark_load_info(self.MVT_service_index)
-                random_load_info = self._update_benchmark_load_info(self.random_service_index)
-                channle_based_load_info = self._update_benchmark_load_info(self.channel_based_service_index)
+                MVT_load_info = self._update_benchmark_load_info(MVT_tmp_index)
+                random_load_info = self._update_benchmark_load_info(random_tmp_index)
+                channle_based_load_info = self._update_benchmark_load_info(MAX_CG_index)
                 max_available_channel_load_info = self._update_benchmark_load_info(self.max_available_channel_based_service_index)
                 print(f"MVT_load_info: {MVT_load_info}")
                 print(f"random_load_info: {random_load_info}")
@@ -563,24 +572,23 @@ class LEOSATEnv(AECEnv):
                     print(f"{self.timestep}-time step, {i}-th agent info: MVT: {self.MVT_service_index[i]}")
                     print(f"{self.timestep}-time step, {i}-th agent info: RANDOM: {self.random_service_index[i]}")
                     print(f"{self.timestep}-time step, {i}-th agent info: channel-gain-based: {self.channel_based_service_index[i]}")
-                    # MVT                  
-                    idx = np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0]                    
-                    if idx !=  self.MVT_service_index[i]: 
+                    # MVT                                    
+                    if MVT_tmp_index[i] !=  self.MVT_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
                         self.MVT_HO_log[i][self.timestep] = 1                    
                         # HOF: QoS
-                        if MVT_data_rate[i, idx] < self.rate_threshold:
+                        if MVT_data_rate[i, MVT_tmp_index[i]] < self.rate_threshold:
                             self.MVT_service_index[i] = -1
                             self.MVT_status_log[i][self.timestep] = 2
                             self.MVT_data_rate_log[i, self.timestep] = 0
                         # HO
                         else:
-                            self.MVT_service_index[i] = idx
+                            self.MVT_service_index[i] = MVT_tmp_index[i]
                             self.MVT_status_log[i][self.timestep] = 3
-                            self.MVT_data_rate_log[i, self.timestep] = MVT_data_rate[i, self.MVT_service_index[i]]   
+                            self.MVT_data_rate_log[i, self.timestep] = 0   
                     else:
                         # Comm F: QoS
-                        if MVT_data_rate[i, idx] < self.rate_threshold:
+                        if MVT_data_rate[i, MVT_tmp_index[i]] < self.rate_threshold:
                             self.MVT_service_index[i] = -1
                             self.MVT_status_log[i][self.timestep] = 2
                             self.MVT_data_rate_log[i, self.timestep] = 0
@@ -588,27 +596,26 @@ class LEOSATEnv(AECEnv):
                             self.MVT_status_log[i][self.timestep] = 4
                             self.MVT_data_rate_log[i, self.timestep] = MVT_data_rate[i, self.MVT_service_index[i]]   
                     
-                    # RANDOM
-                    idx = np.random.randint(0, self.SAT_len*self.SAT_plane)                    
-                    if idx !=  self.random_service_index[i]: 
+                    # RANDOM               
+                    if random_tmp_index[i] !=  self.random_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
                         self.ramdon_HO_log[i][self.timestep] = 1
                     
-                        if self.coverage_indicator[i][idx] == 0:
+                        if self.coverage_indicator[i][random_tmp_index[i]] == 0:
                             self.random_service_index[i] = -1
                             self.random_data_rate_log[i, self.timestep] = 0
                             self.random_status_log[i][self.timestep] = 1
-                        elif random_data_rate[i, idx] < self.rate_threshold:
+                        elif random_data_rate[i, random_tmp_index[i]] < self.rate_threshold:
                             self.random_service_index[i] = -1
                             self.random_status_log[i][self.timestep] = 2
                             self.random_data_rate_log[i, self.timestep] = 0
                         # HO
                         else:
-                            self.random_service_index[i] = idx
+                            self.random_service_index[i] = random_tmp_index[i]
                             self.random_status_log[i][self.timestep] = 3
-                            self.random_data_rate_log[i, self.timestep] = random_data_rate[i, self.random_service_index[i]]
+                            self.random_data_rate_log[i, self.timestep] = 0
                     else:
-                        if random_data_rate[i, idx] < self.rate_threshold:
+                        if random_data_rate[i, random_tmp_index[i]] < self.rate_threshold:
                             self.random_service_index[i] = -1
                             self.random_status_log[i][self.timestep] = 2
                             self.random_data_rate_log[i, self.timestep] = 0
@@ -616,30 +623,29 @@ class LEOSATEnv(AECEnv):
                             self.random_status_log[i][self.timestep] = 4
                             self.random_data_rate_log[i, self.timestep] = random_data_rate[i, self.random_service_index[i]]
 
-                    # channel gain-based
-                    idx = np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0]                    
-                    if idx !=  self.channel_based_service_index[i]: 
+                    # channel gain-based                   
+                    if  MAX_CG_index[i] !=  self.channel_based_service_index[i]: 
                         # HO시도 -> HO 횟수로 취급
                         self.CG_HO_log[i][self.timestep] = 1
                         
                         # HOF: non-coverage area
-                        if self.coverage_indicator[i][idx] == 0:
+                        if self.coverage_indicator[i][ MAX_CG_index[i]] == 0:
                             self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 1
                             self.channel_based_data_rate_log[i, self.timestep] = 0
                         # HOF: QoS
-                        elif channle_gain_based_data_rate[i, idx] < self.rate_threshold:
+                        elif channle_gain_based_data_rate[i,  MAX_CG_index[i]] < self.rate_threshold:
                             self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 2
                             self.channel_based_data_rate_log[i, self.timestep] = 0
                         # HO
                         else:
-                            self.channel_based_service_index[i] = idx
+                            self.channel_based_service_index[i] =  MAX_CG_index[i]
                             self.channel_based_status_log[i][self.timestep] = 3
-                            self.channel_based_data_rate_log[i, self.timestep] = channle_gain_based_data_rate[i, self.channel_based_service_index[i]]
+                            self.channel_based_data_rate_log[i, self.timestep] = 0
                     else:
                         # HOF: QoS
-                        if channle_gain_based_data_rate[i, idx] < self.rate_threshold:
+                        if channle_gain_based_data_rate[i,  MAX_CG_index[i]] < self.rate_threshold:
                             self.channel_based_service_index[i] = -1
                             self.channel_based_status_log[i][self.timestep] = 2
                             self.channel_based_data_rate_log[i, self.timestep] = 0
@@ -648,41 +654,42 @@ class LEOSATEnv(AECEnv):
                             self.channel_based_data_rate_log[i, self.timestep] = channle_gain_based_data_rate[i, self.channel_based_service_index[i]]                      
 
                     # MAX-available channel
-                    idx = -1
-                    tmp_channel_num = 50
-                    for j in range(self.GS_size, self.SAT_len * self.SAT_plane):
-                        if self.coverage_indicator[i][j] == 1 and tmp_channel_num >= max_available_channel_load_info[i, j]:                            
-                            idx = j
-                            tmp_channel_num = max_available_channel_load_info[i, j]
-                    if idx !=  self.max_available_channel_based_service_index[i]: 
-                        # HO시도 -> HO 횟수로 취급
-                        self.MAC_HO_log[i][self.timestep] = 1
+                    # 두번 돌려야 함 -> data rate 얻기가 애매함
+                    # idx = -100
+                    # tmp_channel_num = 50
+                    # for j in range(self.SAT_len * self.SAT_plane):
+                    #     if self.coverage_indicator[i][j] == 1 and tmp_channel_num >= max_available_channel_load_info[i, j]:                            
+                    #         idx = j
+                    #         tmp_channel_num = max_available_channel_load_info[i, j]
+                    # if idx !=  self.max_available_channel_based_service_index[i]: 
+                    #     # HO시도 -> HO 횟수로 취급
+                    #     self.MAC_HO_log[i][self.timestep] = 1
                         
-                        # HOF: non-coverage area
-                        if self.coverage_indicator[i][idx] == 0:
-                            self.max_available_channel_based_service_index[i] = -1
-                            self.max_available_channel_based_status_log[i][self.timestep] = 1
-                            self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
-                        # HOF: QoS
-                        elif max_available_channel_data_rate[i, idx] < self.rate_threshold:
-                            self.max_available_channel_based_service_index[i] = -1
-                            self.max_available_channel_based_status_log[i][self.timestep] = 2
-                            self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
-                        # HO
-                        else:
-                            self.max_available_channel_based_service_index[i] = idx
-                            self.max_available_channel_based_status_log[i][self.timestep] = 3
-                            self.max_available_channel_based_data_rate_log[i, self.timestep] = max_available_channel_data_rate[i, self.max_available_channel_based_service_index[i]]
+                    #     # HOF: non-coverage area
+                    #     if self.coverage_indicator[i][idx] == 0:
+                    #         self.max_available_channel_based_service_index[i] = -1
+                    #         self.max_available_channel_based_status_log[i][self.timestep] = 1
+                    #         self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
+                    #     # HOF: QoS
+                    #     elif max_available_channel_data_rate[i, idx] < self.rate_threshold:
+                    #         self.max_available_channel_based_service_index[i] = -1
+                    #         self.max_available_channel_based_status_log[i][self.timestep] = 2
+                    #         self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
+                    #     # HO
+                    #     else:
+                    #         self.max_available_channel_based_service_index[i] = idx
+                    #         self.max_available_channel_based_status_log[i][self.timestep] = 3
+                    #         self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
 
-                    else:
-                        # HOF: QoS
-                        if max_available_channel_data_rate[i, idx] < self.rate_threshold:
-                            self.max_available_channel_based_service_index[i] = -1
-                            self.max_available_channel_based_status_log[i][self.timestep] = 2
-                            self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
-                        else:
-                            self.max_available_channel_based_status_log[i][self.timestep] = 4
-                            self.max_available_channel_based_data_rate_log[i, self.timestep] = max_available_channel_data_rate[i, self.max_available_channel_based_service_index[i]]    
+                    # else:
+                    #     # HOF: QoS
+                    #     if max_available_channel_data_rate[i, idx] < self.rate_threshold:
+                    #         self.max_available_channel_based_service_index[i] = -1
+                    #         self.max_available_channel_based_status_log[i][self.timestep] = 2
+                    #         self.max_available_channel_based_data_rate_log[i, self.timestep] = 0
+                    #     else:
+                    #         self.max_available_channel_based_status_log[i][self.timestep] = 4
+                    #         self.max_available_channel_based_data_rate_log[i, self.timestep] = max_available_channel_data_rate[i, self.max_available_channel_based_service_index[i]]    
 
                 reward = 0
 
@@ -708,7 +715,7 @@ class LEOSATEnv(AECEnv):
                         reward = -20
                         self.agent_status_log[i][self.timestep] = 3
                         self.rewards[self.agents[i]] = reward
-                        self.rate_data_log[i, self.timestep] =  self.data_rate[i, _actions[i]]
+                        self.rate_data_log[i, self.timestep] =  0
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
@@ -831,7 +838,7 @@ class LEOSATEnv(AECEnv):
         plt.plot(time_step, moving_MADRL_data_rate[1:], label='MADQN', marker='*', markevery=interval)
         plt.plot(time_step, moving_MVT_data_rate[1:], label='MVT', marker='.', markevery=interval)        
         plt.plot(time_step, moving_CG_data_rate[1:], label='MAX-CG', marker='P', markevery=interval)
-        plt.plot(time_step, moving_MAX_C_data_rate[1:], label='MAC', marker='2', markevery=interval)    
+        #plt.plot(time_step, moving_MAX_C_data_rate[1:], label='MAC', marker='2', markevery=interval)    
         plt.plot(time_step, moving_Ranmdom_data_rat[1:], label='Random', marker='|', markevery=interval)
         plt.xlim((1,145))
         plt.ylabel("Moving average throughput [bps]"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
@@ -906,21 +913,21 @@ class LEOSATEnv(AECEnv):
         plt.xlabel('# of Agent'); plt.legend(); plt.title("Channel-gain-based")
 
         # Plot Benchmark- MAC
-        plt.figure(8)
-        MAC_based_status = np.zeros((self.GS_size, 5))
-        for i in range(self.GS_size):
-            MAC_based_status[i][0] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 1)
-            MAC_based_status[i][1] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 2)
-            MAC_based_status[i][2] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 3)
-            MAC_based_status[i][3] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 4)            
+        # plt.figure(8)
+        # MAC_based_status = np.zeros((self.GS_size, 5))
+        # for i in range(self.GS_size):
+        #     MAC_based_status[i][0] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 1)
+        #     MAC_based_status[i][1] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 2)
+        #     MAC_based_status[i][2] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 3)
+        #     MAC_based_status[i][3] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 4)            
 
-        bar_width = 0.1
-        status_1 = plt.bar(agents, MAC_based_status[:,0], bar_width, label='HOF-non_service')
-        status_2 = plt.bar(agents + bar_width, MAC_based_status[:,1], bar_width, label='HOF-QoS')
-        status_3 = plt.bar(agents + 2*bar_width, MAC_based_status[:,2], bar_width, label='HOC')
-        status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='ACK')        
-        plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
-        plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
+        # bar_width = 0.1
+        # status_1 = plt.bar(agents, MAC_based_status[:,0], bar_width, label='HOF-non_service')
+        # status_2 = plt.bar(agents + bar_width, MAC_based_status[:,1], bar_width, label='HOF-QoS')
+        # status_3 = plt.bar(agents + 2*bar_width, MAC_based_status[:,2], bar_width, label='HOC')
+        # status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='ACK')        
+        # plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
+        # plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
 
         # ACK variance
         print(f"ACK var --> MADQN: {np.var(_status[:,3])}, MVT: {np.var(MVT_status[:,3])}, Random: {np.var(Random_status[:,3])}, SINR: {channel_based_status[:,3]}")
@@ -931,8 +938,8 @@ class LEOSATEnv(AECEnv):
         status_1 = plt.bar(agents, _status[:,3], bar_width, label='MADQN')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,3], bar_width, label='MVT')
         status_3 = plt.bar(agents + 2*bar_width, channel_based_status[:,3], bar_width, label='MAX-CG')
-        status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='MAC')
-        status_5 = plt.bar(agents + 4*bar_width, Random_status[:,3], bar_width, label='Random')
+        #status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='MAC')
+        status_5 = plt.bar(agents + 3*bar_width, Random_status[:,3], bar_width, label='Random')
         plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
         plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
 
@@ -985,7 +992,7 @@ class LEOSATEnv(AECEnv):
 
         plt.plot(time_step, HO_CG[1:], label='MAX-CG', marker='P', markevery=interval)
 
-        plt.plot(time_step, HO_MAX_C[1:], label='MAC', marker='2', markevery=interval)
+        #plt.plot(time_step, HO_MAX_C[1:], label='MAC', marker='2', markevery=interval)
 
         plt.plot(time_step, HO_RANDOM[1:], label='Random', marker='|', markevery=interval)
 
@@ -1040,7 +1047,7 @@ class LEOSATEnv(AECEnv):
 
         plt.plot(time_step, HOF_CG[1:], label='MAX-CG', marker='P', markevery=interval)
 
-        plt.plot(time_step, HOF_MAX_C[1:], label='MAC', marker='2', markevery=interval)
+        #plt.plot(time_step, HOF_MAX_C[1:], label='MAC', marker='2', markevery=interval)
 
         plt.plot(time_step, HOF_RANDOM[1:], label='Random', marker='|', markevery=interval)
 
