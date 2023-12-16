@@ -36,14 +36,14 @@ if __name__ == "__main__":
         net = Net(
             state_shape,
             action_shape,
-            hidden_sizes=[256, 256,  256, 256],
+            hidden_sizes=[256, 256,  256],
             device='cuda'
         ).to('cuda')
-        optim = torch.optim.Adam(net.parameters(), lr=1e-3)
+        optim = torch.optim.Adam(net.parameters(), lr=1e-2)
         agent = DQNPolicy(
             net,
             optim,
-            0.8,
+            0.5,
             10,
             target_update_freq=1000,
             clip_loss_grad=True
