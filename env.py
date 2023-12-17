@@ -341,10 +341,10 @@ class LEOSATEnv(AECEnv):
                     signal_power = self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[i][t]
                     if SAT_load[i][t] > 0:
                         #data_rate[i][t] = self.SAT_BW/SAT_load[i][t] * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
-                        data_rate[i][t] = self.SAT_BW/SAT_load[i][t] * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + (self.SAT_BW/SAT_load[i][t])*noise_0 )) )
+                        data_rate[i][t] = self.SAT_BW/SAT_load[i][t] * np.log2(1 + (signal_power / ((interference*FSPL-signal_power) + (self.SAT_BW/SAT_load[i][t])*noise_0 )) )
                     else:
                         #data_rate[i][t] = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + 10**(-12))))
-                        data_rate[i][t] = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + (self.SAT_BW)*noise_0 )) )
+                        data_rate[i][t] = self.SAT_BW * np.log2(1 + (signal_power / ((interference*FSPL-signal_power) + (self.SAT_BW)*noise_0 )) )
 
         #if self.debugging: print(f"{self.timestep}-times Agents' data rate: {data_rate}")
         return data_rate
@@ -462,13 +462,14 @@ class LEOSATEnv(AECEnv):
                 interference += self.SAT_Tx_power*self.anttena_gain*self.channel_gain[gs_idx][j]
 
         for i in range(self.SAT_len*self.SAT_plane):
-            if self.coverage_indicator[gs_idx,i] == 1:
+            if self.coverage_indicator[gs_idx][i] == 1:
                 FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[gs_idx] - self.SAT_point[i]))) ** 2
                 signal_power = self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[gs_idx][i]
-                tmp_data_rate = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power)*FSPL + (self.SAT_BW)* 4*(10**(-21)) )) )
-                if tmp_data_rate >= self.rate_threshold + 5_000_000:
+                tmp_data_rate = self.SAT_BW * np.log2(1 + (signal_power / ((interference*FSPL-signal_power) + (self.SAT_BW)* 4*(10**(-21)) )) )
+                if tmp_data_rate >= self.rate_threshold + 10_000_000:
                     action_mask[i] = 1
         if self.debugging: print(f"{self.timestep}-th, observe func !! {action_mask}")
+        self.observations[agent]['action_mask'] = action_mask
         return {"observation": self.observations[agent]['observation'], "action_mask": action_mask}
 
     def step(self, action):
@@ -705,27 +706,27 @@ class LEOSATEnv(AECEnv):
                 elif _service_indicator[i][_actions[i]] == 0:                    
                     # HOF: data rate 
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -15
+                        reward = -30
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                         self.rewards[self.agents[i]] = reward
                         self.rate_data_log[i, self.timestep] = 0
                     # HO cost
                     else:
-                        reward = -20
+                        reward = -25
                         self.agent_status_log[i][self.timestep] = 3
                         self.rewards[self.agents[i]] = reward
                         self.rate_data_log[i, self.timestep] =  0
                 # Ack
                 else:
                     if self.data_rate[i, _actions[i]] < self.rate_threshold:
-                        reward = -15
+                        reward = -30
                         self.agent_status_log[i][self.timestep] = 2
                         self.service_indicator[i] = np.zeros(self.SAT_len*self.SAT_plane) # 다음 time slot에 무조건 HO가 일어나도록 설정; 대기 상태
                         self.rewards[self.agents[i]] = reward
                         self.rate_data_log[i, self.timestep] =  0
                     else:
-                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((30, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
+                        reward = self.visible_time_weight * self.visible_time[i][_actions[i]] + np.min((50, self.rate_weight * self.data_rate[i][_actions[i]])) # data rate로 최대 reward는 10으로 설정 (100Mbps이상일때 너무 커지는 것을 방지)
                         self.agent_status_log[i][self.timestep] = 4
                         if self.debugging: print(f"ACK Status, {i}-th GS, Selected SAT: {_actions[i]}, load: {np.count_nonzero(_actions == _actions[i])}, Data rate: {self.data_rate[i][_actions[i]]}, Visble time {self.visible_time[i, _actions[i]]}, reawrd: {reward}")
                         self.rewards[self.agents[i]] = reward
