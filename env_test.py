@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # Step 2: Wrap the environment for Tianshou interfacing
     env = PettingZooEnv(env)
 
-    agent_szie = 40
+    agent_szie = 10
 
     # Step 3: Define policies for each agent -> Random policies
     #agents = [RandomPolicy()] * 10

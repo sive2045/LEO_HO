@@ -43,7 +43,7 @@ class LEOSATEnv(AECEnv):
         self.GS_area_max_y = 100    # km
         self.GS_area_max_z = 1_000  # km
 
-        self.GS_size = 40
+        self.GS_size = 10
         self.GS = np.zeros((self.GS_size, 3)) # coordinate (x, y, z) of GS
         self.GS_speed = 0.167 # km/s -> 60 km/h
         self.shadow_fading = 0.5 # [dB]
@@ -73,7 +73,7 @@ class LEOSATEnv(AECEnv):
         self.SAT_Load = np.zeros((self.GS_size, self.SAT_len * self.SAT_plane)) # the available channels of SAT
         self.load_info = np.zeros((self.GS_size, self.SAT_len*self.SAT_plane)) # load info
         
-        self.SAT_BW = 5_000_000_000 # Hz BW budget of SAT
+        self.SAT_BW = 8_000_000_000 # Hz BW budget of SAT
         self.freq = 20 # GHz
         self.SAT_Tx_power = 40 # W
         self.GNSS_noise = 1 # 수정 예정
@@ -468,9 +468,9 @@ class LEOSATEnv(AECEnv):
                 FSPL = (299792458/(4*np.pi*self.freq*1000000*np.linalg.norm(self.GS[gs_idx] - self.SAT_point[i]))) ** 2
                 signal_power = self.SAT_Tx_power*self.anttena_gain*FSPL*self.channel_gain[gs_idx][i]
                 tmp_data_rate = self.SAT_BW * np.log2(1 + (signal_power / ((interference-signal_power) + (self.SAT_BW)* 4*(10**(-21)) )) )
-                if tmp_data_rate >= self.rate_threshold + 2_000_000:
+                if tmp_data_rate >= self.rate_threshold :
                     action_mask[i] = 1
-        if self.debugging: print(f"{self.timestep}-th, gsidx: {gs_idx} observe func !! {action_mask}")
+        # if self.debugging: print(f"{self.timestep}-th, gsidx: {gs_idx} observe func !! {action_mask}")
         self.observations[agent]['action_mask'] = action_mask
         return {"observation": self.observations[agent]['observation'], "action_mask": action_mask}
 
@@ -546,18 +546,19 @@ class LEOSATEnv(AECEnv):
                 random_tmp_index = np.zeros((self.GS_size), dtype=int)
                 for i in range(self.GS_size):
                     MVT_tmp_index[i] = int(np.where(self.visible_time[i] == np.max(self.visible_time[i]))[0][0])
-                    random_tmp_index[i] = int(np.random.randint(0, self.SAT_len*self.SAT_plane))
                     MAX_CG_index[i] = int(np.where(self.channel_gain[i] == np.max(self.channel_gain[i]))[0][0])
+                    rnd_tmp_index_array = np.where(self.coverage_indicator[i] == 1)
+                    random_tmp_index[i] = int(np.random.choice(rnd_tmp_index_array[0], size=1))
 
                 # get load info
                 MVT_load_info = self._update_benchmark_load_info(MVT_tmp_index)
                 random_load_info = self._update_benchmark_load_info(random_tmp_index)
                 channle_based_load_info = self._update_benchmark_load_info(MAX_CG_index)
                 max_available_channel_load_info = self._update_benchmark_load_info(self.max_available_channel_based_service_index)
-                print(f"MVT_load_info: {MVT_load_info}")
-                print(f"random_load_info: {random_load_info}")
-                print(f"channle_based_load_info: {channle_based_load_info}")
-                print(f"max_available_channel_load_info: {max_available_channel_load_info}")
+                # print(f"MVT_load_info: {MVT_load_info}")
+                # print(f"random_load_info: {random_load_info}")
+                # print(f"channle_based_load_info: {channle_based_load_info}")
+                # print(f"max_available_channel_load_info: {max_available_channel_load_info}")
 
                 # get data rate
                 MVT_data_rate = self._cal_data_rate(MVT_load_info)
@@ -701,6 +702,7 @@ class LEOSATEnv(AECEnv):
                     self.rewards[self.agents[i]] = reward
                     self.rate_data_log[i, self.timestep] =  0
                     #self.terminations = {agent: True for agent in self.agents} # 학습 종료.
+                    print(f"agent:{i}-th, {self.timestep}, action: {_actions[i]}, coverage ; {self.coverage_indicator[i]}")
                 # HO occur
                 elif _service_indicator[i][_actions[i]] == 0:                    
                     # HOF: data rate 
@@ -822,26 +824,24 @@ class LEOSATEnv(AECEnv):
         print(f"MAX_C_based_rate-based episode average data rate:{MAX_C_based_rate/self.GS_size}")
 
         # average througput
-        plt.figure(0)
+        plt.figure(10)
+        interval = 15 # mark interveal
         MADRL_data_rate = self.rate_data_log.mean(axis=0)
-        moving_MADRL_data_rate = np.convolve(MADRL_data_rate, np.ones(10), 'valid')/10
+        moving_MADRL_data_rate = np.convolve(MADRL_data_rate, np.ones(interval), 'valid')/interval
         MVT_data_rate = self.MVT_data_rate_log.mean(axis=0)
-        moving_MVT_data_rate = np.convolve(MVT_data_rate, np.ones(10), 'valid')/10
+        moving_MVT_data_rate = np.convolve(MVT_data_rate, np.ones(interval), 'valid')/interval
         CG_data_rate = self.channel_based_data_rate_log.mean(axis=0)
-        moving_CG_data_rate = np.convolve(CG_data_rate, np.ones(10), 'valid')/10
-        MAX_C_data_rate = self.max_available_channel_based_data_rate_log.mean(axis=0)
-        moving_MAX_C_data_rate = np.convolve(MAX_C_data_rate, np.ones(10), 'valid')/10
+        moving_CG_data_rate = np.convolve(CG_data_rate, np.ones(interval), 'valid')/interval
         Ranmdom_data_rate = self.random_data_rate_log.mean(axis=0)
-        moving_Ranmdom_data_rat = np.convolve(Ranmdom_data_rate, np.ones(10), 'valid')/10
+        moving_Ranmdom_data_rat = np.convolve(Ranmdom_data_rate, np.ones(interval), 'valid')/interval
 
-        time_step = np.arange(self.terminal_time-9); interval = 10 # mark interveal
+        time_step = np.arange(self.terminal_time-interval+1); 
         plt.plot(time_step, moving_MADRL_data_rate[1:], label='MADQN', marker='*', markevery=interval)
         plt.plot(time_step, moving_MVT_data_rate[1:], label='MVT', marker='.', markevery=interval)        
-        plt.plot(time_step, moving_CG_data_rate[1:], label='MAX-CG', marker='P', markevery=interval)
-        #plt.plot(time_step, moving_MAX_C_data_rate[1:], label='MAC', marker='2', markevery=interval)    
+        plt.plot(time_step, moving_CG_data_rate[1:], label='MAX-CG', marker='P', markevery=interval) 
         plt.plot(time_step, moving_Ranmdom_data_rat[1:], label='Random', marker='|', markevery=interval)
-        plt.xlim((1,145))
-        plt.ylabel("Moving average throughput [bps]"); plt.legend(loc=(0.02, 0.5)); plt.xlabel('time step'); plt.grid()
+        plt.xlim((1,self.terminal_time-interval+1))
+        plt.ylabel("Moving average throughput [bps]"); plt.xlabel('time step'); plt.grid(); plt.legend()
 
         # Plot Agents' Status
         plt.figure(1)
@@ -912,22 +912,20 @@ class LEOSATEnv(AECEnv):
         plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
         plt.xlabel('# of Agent'); plt.legend(); plt.title("Channel-gain-based")
 
-        # Plot Benchmark- MAC
-        # plt.figure(8)
-        # MAC_based_status = np.zeros((self.GS_size, 5))
-        # for i in range(self.GS_size):
-        #     MAC_based_status[i][0] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 1)
-        #     MAC_based_status[i][1] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 2)
-        #     MAC_based_status[i][2] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 3)
-        #     MAC_based_status[i][3] = np.count_nonzero(self.max_available_channel_based_status_log[i] == 4)            
-
-        # bar_width = 0.1
-        # status_1 = plt.bar(agents, MAC_based_status[:,0], bar_width, label='HOF-non_service')
-        # status_2 = plt.bar(agents + bar_width, MAC_based_status[:,1], bar_width, label='HOF-QoS')
-        # status_3 = plt.bar(agents + 2*bar_width, MAC_based_status[:,2], bar_width, label='HOC')
-        # status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='ACK')        
-        # plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
-        # plt.xlabel('# of Agent'); plt.legend(); plt.title("MAC")
+        ## UEs' data rate
+        plt.figure(0)
+        UEs_data_rate = np.zeros((self.GS_size, 4))
+        UEs_data_rate[:,0] = self.rate_data_log.mean(axis=1)
+        UEs_data_rate[:,1] = self.MVT_data_rate_log.mean(axis=1)
+        UEs_data_rate[:,2] = self.channel_based_data_rate_log.mean(axis=1)
+        UEs_data_rate[:,3] = self.random_data_rate_log.mean(axis=1)
+        bar_width = 0.1
+        status_1 = plt.bar(agents, UEs_data_rate[:,0], bar_width, label='MADQN')
+        status_2 = plt.bar(agents + bar_width, UEs_data_rate[:,1], bar_width, label='MVT')
+        status_3 = plt.bar(agents + 2*bar_width, UEs_data_rate[:,2], bar_width, label='MAX-CG')
+        status_5 = plt.bar(agents + 3*bar_width, UEs_data_rate[:,3], bar_width, label='Random')
+        plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
+        plt.ylabel("Moving average throughput [bps]"); plt.xlabel('UEs'); plt.legend()
 
         # ACK variance
         print(f"ACK var --> MADQN: {np.var(_status[:,3])}, MVT: {np.var(MVT_status[:,3])}, Random: {np.var(Random_status[:,3])}, SINR: {channel_based_status[:,3]}")
@@ -938,7 +936,6 @@ class LEOSATEnv(AECEnv):
         status_1 = plt.bar(agents, _status[:,3], bar_width, label='MADQN')
         status_2 = plt.bar(agents + bar_width, MVT_status[:,3], bar_width, label='MVT')
         status_3 = plt.bar(agents + 2*bar_width, channel_based_status[:,3], bar_width, label='MAX-CG')
-        #status_4 = plt.bar(agents + 3*bar_width, MAC_based_status[:,3], bar_width, label='MAC')
         status_5 = plt.bar(agents + 3*bar_width, Random_status[:,3], bar_width, label='Random')
         plt.xticks(np.arange(bar_width, self.GS_size+bar_width,1), agents)
         plt.xlabel('UEs'); plt.legend(); plt.ylabel('Communication times')
@@ -976,15 +973,6 @@ class LEOSATEnv(AECEnv):
         HO_MAX_C[:] = HO_MAX_C[-1] / self.terminal_time
         interval = 10 # mark interveal
         time_step = np.arange(self.terminal_time)
-
-        # HO_MADQN = self.HO_log.mean(axis=0) 
-        # moving_HO_MADQN = np.convolve(HO_MADQN, np.ones(interval), 'valid')/interval
-        # HO_MVT = self.MVT_HO_log.mean(axis=0) 
-        # moving_HO_MVT = np.convolve(HO_MVT, np.ones(interval), 'valid')/interval
-        # HO_CG = self.CG_HO_log.mean(axis=0) 
-        # moving_HO_CG = np.convolve(HO_CG, np.ones(interval), 'valid')/interval
-        # HO_RANDOM = self.ramdon_HO_log.mean(axis=0)
-        # moving_HO_RANDOM = np.convolve(HO_RANDOM, np.ones(interval), 'valid')/interval
 
         plt.plot(time_step, HO_MADQN[1:], label='MADQN', marker='*', markevery=interval)
 
